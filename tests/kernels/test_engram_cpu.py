@@ -301,7 +301,8 @@ def test_cuda_callback_orders_copies_and_refreshes_full_graph(cpu_api):
     bridge.retire()
 
 
-def test_npu_callback_refreshes_external_event_graph(cpu_api):
+@pytest.mark.parametrize("host_ids", [False, True])
+def test_npu_callback_refreshes_external_event_graph(cpu_api, host_ids):
     pytest.importorskip("torch_npu")
     if not torch.npu.is_available():
         pytest.skip("requires an NPU")
@@ -309,7 +310,7 @@ def test_npu_callback_refreshes_external_event_graph(cpu_api):
     bridge = cpu_api.CPUEmbeddingLookup()
     codes = torch.arange(7 * 32, dtype=torch.float32).view(7, 32).bfloat16()
     producer, consumer = torch.npu.Stream(), torch.npu.Stream()
-    ids = torch.zeros((5, 1), dtype=torch.int32, device="npu")
+    ids = torch.zeros((5, 1), dtype=torch.int32, device="cpu" if host_ids else "npu")
     rows = torch.zeros((5, 1, 32), dtype=torch.bfloat16, device="npu")
     result = torch.empty_like(rows)
     ready = torch.npu.ExternalEvent()
@@ -347,6 +348,8 @@ def test_npu_callback_refreshes_external_event_graph(cpu_api):
                 vocab_start=0,
                 block_size=32,
             )
+            if host_ids:
+                ids.fill_((step + 1) % 7)
             ready.record(producer)
         with torch.npu.stream(consumer):
             graph.replay()

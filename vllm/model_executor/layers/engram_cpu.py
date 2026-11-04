@@ -137,10 +137,10 @@ def gather_out(
 
 
 class CPUEmbeddingLookup:
-    """Graph-external device-ID -> CPU retrieval -> device-row bridge.
+    """Graph-external host/device-ID -> CPU retrieval -> device-row bridge.
 
     Each embedding owns one high-water staging allocation. A native host
-    callback orders CPU retrieval after D2H and before H2D on the producer
+    callback orders CPU retrieval after the ID snapshot and before H2D on the producer
     stream. A completion event protects pinned storage until reuse. Callers
     publish their layer-ready events after H2D and existing collectives.
     """
@@ -210,7 +210,7 @@ class CPUEmbeddingLookup:
             or out.shape[0] != indices.shape[0]
             or out.dtype != torch.bfloat16
             or not out.is_contiguous()
-            or indices.device != out.device
+            or (indices.device.type != "cpu" and indices.device != out.device)
         ):
             raise ValueError("invalid CPU Engram device input/output layout")
         if codes.device.type != "cpu" or (
@@ -266,6 +266,8 @@ class CPUEmbeddingLookup:
             # Even an enqueue failure must leave a lease on any submitted D2H.
             event = device_api.Event() if pinned else None
             try:
+                # Copy host IDs too: the workspace may be reused before the
+                # asynchronous callback consumes them. This is H2H, not D2H.
                 ids.copy_(indices, non_blocking=pinned)
                 if pinned:
                     stream = device_api.current_stream(out.device)

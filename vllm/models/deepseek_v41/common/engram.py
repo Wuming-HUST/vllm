@@ -592,6 +592,8 @@ class NgramHashState(nn.Module):
         lookback_dead_mask,
         slot_mapping,
         block_table,
+        *,
+        publish=True,
     ):
         workspace = self._cpu_hash
         hashes = workspace.run(
@@ -606,7 +608,7 @@ class NgramHashState(nn.Module):
             cache=self._cache if self.use_slot_cache else None,
             block_size=self.block_size,
         )
-        return workspace.publish(hashes, input_ids.device)
+        return workspace.publish(hashes, input_ids.device) if publish else hashes
 
 
 def _engram_head_shard_weight_loader(

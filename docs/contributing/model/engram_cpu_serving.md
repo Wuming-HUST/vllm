@@ -45,7 +45,7 @@ Existing DBO, microbatch and platform topology restrictions remain in effect.
 flowchart LR
     A[Runner IDs and authoritative history] --> B[CPU vocabulary conversion and hash]
     B --> C[Existing PCP selection and DP hash gather]
-    C --> D[Producer stream: IDs D2H]
+    C --> D[Producer: host ID snapshot or device IDs D2H]
     D --> E[Native CPU host callback: gather and dequantize]
     E --> F[BF16 rows H2D]
     F --> G[Existing platform ready and communication protocol]
@@ -64,7 +64,8 @@ Metadata D2H and CPU compression/hash currently complete **before model dispatch
 They are a synchronous prefix and are not claimed to be hidden by decoder compute.
 Heavy CPU embedding retrieval uses native C++ stream host callbacks, with no
 Python/GIL work or accelerator API calls inside the callback. The producer queues
-D2H, callback, H2D and existing communication before publishing readiness. Main
+the ID snapshot (H2H for host IDs, D2H for device IDs), callback, H2D and
+existing communication before publishing readiness. Main
 model dispatch can proceed while CPU retrieval is still running; actual overlap,
 callback availability and latency must be measured on the target.
 
@@ -174,3 +175,15 @@ ordering and measured overlap, plus TTFT/TPOT, throughput, CPU core-seconds, PSS
 and pinned-memory high-water marks. Stop on stale rows, hash/cache mismatches,
 collective divergence, callback failure or quality regression. Preserve failed
 runs. No performance or zero-stall claim follows from a passed local build.
+
+## A3 deployment and host-ID update (2026-11-04)
+
+The paired Ascend update passes CPU hash IDs directly to CPU
+lookup when local/shared tables require no per-step hash collective. It removes
+hash H2D followed by lookup-ID D2H on that route; metadata D2H, BF16 H2D,
+TP row communication and ready/event ordering remain. Device-collective routes
+retain the existing bridge. This update requires both repositories at the versions recorded in the
+[A3 experiment plan](engram_cpu_a3_experiment_plan_zh.md) and still needs target validation.
+
+See [A3 Docker deployment](engram_cpu_a3_docker_zh.md) for the fixed v0.30.0 A3 DP4/TP4 recipe,
+both source installations, native CPU extension build and callback/graph checks.
