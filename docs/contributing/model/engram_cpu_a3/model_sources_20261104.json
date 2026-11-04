@@ -1,0 +1,488 @@
+{
+  "date": "2026-11-04",
+  "method": "Read ModelScope metadata and HTTP Range safetensors JSON headers only; no full weights downloaded. Re-fetch at immutable revisions and match all metadata/header SHA256 values.",
+  "model_revisions": {
+    "Eco-Tech/DeepSeek-V4.1-Flash-w8a8": "155aced390c4692698400b744546a8bc396699c6",
+    "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8": "12b85455a58c7df345c1abc43934624a76bac576"
+  },
+  "metadata": [
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "README.md",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/README.md",
+      "sha256": "fe0edcfd5750ddf9675866ff7d5c7f69fdccb86ef7bf2a1f88ddb5e2b706e1f8",
+      "size": 2744,
+      "summary": "---\nlicense: MIT License\ntasks:\n  - image-text-to-text\nbase_model:\n  - deepseek-ai/DeepSeek-V4.1-Flash\nbase_model_relation: quantized\n---\n# DeepSeek-V4.1-Flash-w8a8\n\n【注】：此为先行体验版，非msmodelslim官分分支量化版。\n\n——————————————————————————————————————————————————————————————\n\n\n主干与 DSpark 指定 Linear 为 W8A8 Dynamic；ViT/Aligner 和 Engram 为 BF16。\n\nEngram 表直接由原始 FP8 E4M3 + group32 UE8M0 scale 解码为 BF16，不经过 INT8 中转；以完整张量 `layers.1.engram.embed.weight`、`layers.14.engram.embed.weight` 保存，无 embedding quant scale、`.parts.*` 或 compressed-tensors 配置。整体继续使用 `quant_method: ascend`。\n\n`Aurora_best_practice.yaml` 记录制作方案。原生制作使用 `apiversion: modelslim_convert`、`spec.profile: aurora`，通过 `msmodelslim quant --config` 执行；历史脚本记录使用旧 schema。主干执行 norm folding 和 QuaRot；DSpark 仅 main_proj 输入适配主干旋转，embed/head 保留源值副本。\n\nEngram 的 K 与 gate 保持原模型基底，gate 输入仍需恢复 `h_rot @ Q.T`。`wkv` 最后 5120 行 V 已折叠 `Q.T @ Wv`，直接输出旋转基底的 V；用 `h_rot + gate * v_rot` 更新 residual，禁止再次对增量乘 Q。具体约定见 `config.json` 的 `engram_rotation_config`。ViT 输出边界已旋转。`optional/quarot.safetensors` 保存 global/query 旋转矩阵。\n\n权重转换与推理适配是独立验收项。当前尚未签核该 Aurora 的完整 vLLM/vllm-ascend 推理或整模型任务精度。转换与校验记录位于单独的制作目录，不属于权重加载依赖。\n\n原生导出含 `aurora_export_manifest.json`，记录分片和元数据 SHA256、实际配置、源码与运行环境。复制后运行 `python -m msmodelslim.model.aurora.integrity --output /path/to/Aurora-W8A8` 全量回读检查。历史脚本产物不包含此清单；完整性 PASS 不代表数值精度验收。\n\nEngram 源格式描述位于 `quant_model_description.json` 的\n`optional.embedding_storage`（version 2）：每个 `layers.N.engram.embed` 模块记录\n`format: bf16`、`weight_dtype: BF16`、`weight_shape: [rows, 256]` 和\n`layout: row_major`，没有 scale。dtype 名称与 safetensors header 一致；原有\n`FLOAT` tensor tag 和普通 W8A8 Linear 描述保持不变。\n\n这些字段只描述 checkpoint 实际源格式。`engram_storage`、`engram_load_dtype`\n由 vLLM 的运行时配置选择，不写入 checkpoint；BF16 源可直接加载，也可由 loader\n分块转为 INT8。Engram hash、projection、gate 和 V 旋转合同保持不变。\n"
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "config.json",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/config.json",
+      "sha256": "1b2ed579c6a221f68f49222d470dab2068b23a3efc17d969b7a909e684e06316",
+      "size": 3395,
+      "summary": {
+        "architectures": [
+          "DeepseekV41ForCausalLM"
+        ],
+        "dtype": "bfloat16",
+        "quantization_config": {
+          "quant_method": "ascend",
+          "model_quant_type": "W8A8_DYNAMIC"
+        },
+        "engram_rotation_config": {
+          "value_projection_rotated": true,
+          "value_basis": "quarot_global",
+          "key_and_gate_basis": "original",
+          "runtime_delta_rotation": false
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "quant_model_description.json",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/quant_model_description.json",
+      "sha256": "2006d73f44523ca9d5a1f5494b6351e04729ab9e5825d0fd43a75f6f4fcede8e",
+      "size": 8687082,
+      "summary": {
+        "layers.1.engram.k_weight": "FLOAT",
+        "layers.1.engram.q_weight": "FLOAT",
+        "layers.1.engram.wkv.weight": "FLOAT",
+        "layers.14.engram.k_weight": "FLOAT",
+        "layers.14.engram.q_weight": "FLOAT",
+        "layers.14.engram.wkv.weight": "FLOAT",
+        "layers.1.engram.embed.weight": "FLOAT",
+        "layers.1.engram.embed.scale": "FLOAT",
+        "layers.14.engram.embed.weight": "FLOAT",
+        "layers.14.engram.embed.scale": "FLOAT",
+        "optional": {
+          "quarot": {
+            "rotation_map": {
+              "global_rotation": "optional/quarot.safetensors"
+            }
+          },
+          "embedding_storage": {
+            "version": 1,
+            "modules": {
+              "layers.1.engram.embed": {
+                "format": "int8_sym",
+                "group_size": 32,
+                "axis": 1,
+                "scale_suffix": "scale",
+                "scale_dtype": "float32",
+                "output_dtype": "bfloat16"
+              },
+              "layers.14.engram.embed": {
+                "format": "int8_sym",
+                "group_size": 32,
+                "axis": 1,
+                "scale_suffix": "scale",
+                "scale_dtype": "float32",
+                "output_dtype": "bfloat16"
+              }
+            }
+          }
+        },
+        "example_linear": {
+          "aligner.w1.bias": "FLOAT",
+          "aligner.w1.weight": "FLOAT",
+          "aligner.w2.bias": "FLOAT",
+          "aligner.w2.weight": "FLOAT",
+          "embed.weight": "FLOAT",
+          "head.weight": "FLOAT",
+          "image_end": "FLOAT",
+          "image_newline": "FLOAT",
+          "image_start": "FLOAT",
+          "layers.0.attn.attn_sink": "FLOAT",
+          "layers.0.attn.kv_norm.weight": "FLOAT",
+          "layers.0.attn.q_norm.weight": "FLOAT"
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "quant_model_weights.safetensors.index.json",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/quant_model_weights.safetensors.index.json",
+      "sha256": "0dc009ac93014cb0848acec2140223455b14733a82cfdbefc97c1b8c19559dfb",
+      "size": 13859257,
+      "summary": {
+        "layers.1.engram.k_weight": "quant_model_weights-00009-of-00272.safetensors",
+        "layers.1.engram.q_weight": "quant_model_weights-00009-of-00272.safetensors",
+        "layers.1.engram.wkv.weight": "quant_model_weights-00009-of-00272.safetensors",
+        "layers.14.engram.k_weight": "quant_model_weights-00041-of-00272.safetensors",
+        "layers.14.engram.q_weight": "quant_model_weights-00041-of-00272.safetensors",
+        "layers.14.engram.wkv.weight": "quant_model_weights-00041-of-00272.safetensors",
+        "layers.1.engram.embed.weight": "engram_embed_weight_l1.safetensors",
+        "layers.1.engram.embed.scale": "engram_embed_scale_l1.safetensors",
+        "layers.14.engram.embed.weight": "engram_embed_weight_l14.safetensors",
+        "layers.14.engram.embed.scale": "engram_embed_scale_l14.safetensors"
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "README.md",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/master/README.md",
+      "sha256": "2667c0496ac565acc1406022e6042e89aa29d4f5d3f4a6e36cfca0440b93d7e9",
+      "size": 960,
+      "summary": "---\nbase_model:\n- \"\"\nframeworks:\n- \"\"\nlicense: MIT License\ntags: []\ntasks:\n- image-text-to-text\n---\n### 当前模型的贡献者未提供更加详细的模型介绍。模型文件和权重，可浏览“模型文件”页面获取。\n#### 您可以通过如下git clone命令，或者ModelScope SDK来下载模型\n\nSDK下载\n```bash\n#安装ModelScope\npip install modelscope\n```\n```python\n#SDK模型下载\nfrom modelscope import snapshot_download\nmodel_dir = snapshot_download('Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8')\n```\nGit下载\n```\n#Git模型下载\ngit clone https://www.modelscope.cn/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8.git\n```\n\n<p style=\"color: lightgrey;\">如果您是本模型的贡献者，我们邀请您根据<a href=\"https://modelscope.cn/docs/ModelScope%E6%A8%A1%E5%9E%8B%E6%8E%A5%E5%85%A5%E6%B5%81%E7%A8%8B%E6%A6%82%E8%A7%88\" style=\"color: lightgrey; text-decoration: underline;\">模型贡献文档</a>，及时完善模型卡片内容。</p>\n"
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "config.json",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/master/config.json",
+      "sha256": "43d3b2bc55626893d59275b32e04068c0fc916f5c382eb91de73bdbade9c88f7",
+      "size": 3355,
+      "summary": {
+        "architectures": [
+          "DeepseekV41ForCausalLM"
+        ],
+        "dtype": "bfloat16",
+        "quantization_config": {
+          "quant_method": "ascend"
+        },
+        "engram_rotation_config": {
+          "value_projection_rotated": true,
+          "value_basis": "quarot_global",
+          "key_and_gate_basis": "original",
+          "runtime_delta_rotation": false
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "quant_model_description.json",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/master/quant_model_description.json",
+      "sha256": "2f4020a0a12daa621cfd2ff9d09a2c73e5674af7c624ef47df5c66796c3774bf",
+      "size": 8677636,
+      "summary": {
+        "layers.1.engram.k_weight": "FLOAT",
+        "layers.1.engram.q_weight": "FLOAT",
+        "layers.1.engram.wkv.weight": "FLOAT",
+        "layers.14.engram.k_weight": "FLOAT",
+        "layers.14.engram.q_weight": "FLOAT",
+        "layers.14.engram.wkv.weight": "FLOAT",
+        "optional": {
+          "quarot": {
+            "rotation_map": {
+              "global_rotation": "optional/quarot.safetensors"
+            }
+          },
+          "embedding_storage": {
+            "version": 2,
+            "modules": {
+              "layers.1.engram.embed": {
+                "format": "int8_sym",
+                "weight_dtype": "I8",
+                "weight_shape": [
+                  384006168,
+                  256
+                ],
+                "layout": "row_major",
+                "group_size": 32,
+                "axis": 1,
+                "scale_suffix": "scale",
+                "scale_dtype": "F8_E8M0",
+                "scale_shape": [
+                  384006168,
+                  8
+                ]
+              },
+              "layers.14.engram.embed": {
+                "format": "int8_sym",
+                "weight_dtype": "I8",
+                "weight_shape": [
+                  384016682,
+                  256
+                ],
+                "layout": "row_major",
+                "group_size": 32,
+                "axis": 1,
+                "scale_suffix": "scale",
+                "scale_dtype": "F8_E8M0",
+                "scale_shape": [
+                  384016682,
+                  8
+                ]
+              }
+            }
+          }
+        },
+        "layers.1.engram.embed.quant_type": "INT8_SYM",
+        "layers.14.engram.embed.quant_type": "INT8_SYM",
+        "example_linear": {
+          "aligner.w1.bias": "FLOAT",
+          "aligner.w1.weight": "FLOAT",
+          "aligner.w2.bias": "FLOAT",
+          "aligner.w2.weight": "FLOAT",
+          "embed.weight": "FLOAT",
+          "group_size": 0,
+          "head.weight": "FLOAT",
+          "image_end": "FLOAT",
+          "image_newline": "FLOAT",
+          "image_start": "FLOAT",
+          "layers.0.attn.attn_sink": "FLOAT",
+          "layers.0.attn.kv_norm.weight": "FLOAT"
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "quant_model_weights.safetensors.index.json",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/master/quant_model_weights.safetensors.index.json",
+      "sha256": "c32977056a3e8bb17d2330d566020f49ff65facb022c25035b8d3fcf5d2af3a2",
+      "size": 13843894,
+      "summary": {
+        "layers.14.engram.q_weight": "quant_model_weights-engram-extra-14.safetensors",
+        "layers.14.engram.k_weight": "quant_model_weights-engram-extra-14.safetensors",
+        "layers.14.engram.wkv.weight": "quant_model_weights-engram-extra-14.safetensors",
+        "layers.1.engram.q_weight": "quant_model_weights-engram-extra-1.safetensors",
+        "layers.1.engram.k_weight": "quant_model_weights-engram-extra-1.safetensors",
+        "layers.1.engram.wkv.weight": "quant_model_weights-engram-extra-1.safetensors",
+        "layers.1.engram.embed.weight": "quant_model_weights-engram-1.safetensors",
+        "layers.1.engram.embed.scale": "quant_model_weights-engram-1.safetensors",
+        "layers.14.engram.embed.weight": "quant_model_weights-engram-14.safetensors",
+        "layers.14.engram.embed.scale": "quant_model_weights-engram-14.safetensors"
+      }
+    }
+  ],
+  "headers": [
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "shard": "engram_embed_scale_l1.safetensors",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/engram_embed_scale_l1.safetensors",
+      "status": 206,
+      "content_range": "bytes 0-1048575/12288197488",
+      "header_sha256": "4ef005ce4a89b1c122a1ebb9ff79daaade217b499131b29b78e1e17df2b36b1f",
+      "tensors": {
+        "layers.1.engram.embed.scale": {
+          "dtype": "F32",
+          "shape": [
+            384006168,
+            8
+          ],
+          "data_offsets": [
+            0,
+            12288197376
+          ]
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "shard": "engram_embed_scale_l14.safetensors",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/engram_embed_scale_l14.safetensors",
+      "status": 206,
+      "content_range": "bytes 0-1048575/12288533936",
+      "header_sha256": "d9e91545723e74ffb060c1e8a852ab08a0d6eb00ff2c06955b7a1e134011bffe",
+      "tensors": {
+        "layers.14.engram.embed.scale": {
+          "dtype": "F32",
+          "shape": [
+            384016682,
+            8
+          ],
+          "data_offsets": [
+            0,
+            12288533824
+          ]
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "shard": "engram_embed_weight_l1.safetensors",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/engram_embed_weight_l1.safetensors",
+      "status": 206,
+      "content_range": "bytes 0-1048575/98305579120",
+      "header_sha256": "28c5b2156b35770ad5f7685fc1f1e369a0e520fa52fc1c83d8d4251c26195173",
+      "tensors": {
+        "layers.1.engram.embed.weight": {
+          "dtype": "I8",
+          "shape": [
+            384006168,
+            256
+          ],
+          "data_offsets": [
+            0,
+            98305579008
+          ]
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "shard": "engram_embed_weight_l14.safetensors",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/master/engram_embed_weight_l14.safetensors",
+      "status": 206,
+      "content_range": "bytes 0-1048575/98308270704",
+      "header_sha256": "1e5bdc09ac45db2e73d2e72fe802e7835e878e1971939331d60285ca5ea79a44",
+      "tensors": {
+        "layers.14.engram.embed.weight": {
+          "dtype": "I8",
+          "shape": [
+            384016682,
+            256
+          ],
+          "data_offsets": [
+            0,
+            98308270592
+          ]
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "shard": "quant_model_weights-engram-1.safetensors",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/master/quant_model_weights-engram-1.safetensors",
+      "status": 206,
+      "content_range": "bytes 0-1048575/101377628608",
+      "header_sha256": "21ccce1b1b70e9131d20ab04ed293d571c8b192b05afbeabde3f0e605c7019d8",
+      "tensors": {
+        "layers.1.engram.embed.weight": {
+          "dtype": "I8",
+          "shape": [
+            384006168,
+            256
+          ],
+          "data_offsets": [
+            0,
+            98305579008
+          ]
+        },
+        "layers.1.engram.embed.scale": {
+          "dtype": "F8_E8M0",
+          "shape": [
+            384006168,
+            8
+          ],
+          "data_offsets": [
+            98305579008,
+            101377628352
+          ]
+        }
+      }
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "shard": "quant_model_weights-engram-14.safetensors",
+      "url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/master/quant_model_weights-engram-14.safetensors",
+      "status": 206,
+      "content_range": "bytes 0-1048575/101380404312",
+      "header_sha256": "3cfe50dce8e9ff9d3ed29c94a415f2ec609ca8db42a0406229b61e65c82f4c4f",
+      "tensors": {
+        "layers.14.engram.embed.weight": {
+          "dtype": "I8",
+          "shape": [
+            384016682,
+            256
+          ],
+          "data_offsets": [
+            0,
+            98308270592
+          ]
+        },
+        "layers.14.engram.embed.scale": {
+          "dtype": "F8_E8M0",
+          "shape": [
+            384016682,
+            8
+          ],
+          "data_offsets": [
+            98308270592,
+            101380404048
+          ]
+        }
+      }
+    }
+  ],
+  "immutable_revision_verification": [
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "README.md",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/README.md",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "config.json",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/config.json",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "quant_model_description.json",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/quant_model_description.json",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "quant_model_weights.safetensors.index.json",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/quant_model_weights.safetensors.index.json",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "README.md",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/12b85455a58c7df345c1abc43934624a76bac576/README.md",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "config.json",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/12b85455a58c7df345c1abc43934624a76bac576/config.json",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "quant_model_description.json",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/12b85455a58c7df345c1abc43934624a76bac576/quant_model_description.json",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "quant_model_weights.safetensors.index.json",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/12b85455a58c7df345c1abc43934624a76bac576/quant_model_weights.safetensors.index.json",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "engram_embed_scale_l1.safetensors",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/engram_embed_scale_l1.safetensors",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "engram_embed_scale_l14.safetensors",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/engram_embed_scale_l14.safetensors",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "engram_embed_weight_l1.safetensors",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/engram_embed_weight_l1.safetensors",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-w8a8",
+      "file": "engram_embed_weight_l14.safetensors",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-w8a8/resolve/155aced390c4692698400b744546a8bc396699c6/engram_embed_weight_l14.safetensors",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "quant_model_weights-engram-1.safetensors",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/12b85455a58c7df345c1abc43934624a76bac576/quant_model_weights-engram-1.safetensors",
+      "sha256_matches": true
+    },
+    {
+      "model": "Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8",
+      "file": "quant_model_weights-engram-14.safetensors",
+      "revision_url": "https://modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8/resolve/12b85455a58c7df345c1abc43934624a76bac576/quant_model_weights-engram-14.safetensors",
+      "sha256_matches": true
+    }
+  ],
+  "local_source_heads": {
+    "vllm": "4a5d453d8bc86e09fd51ab8dff4156bb772592c6",
+    "vllm-ascend": "59a979ef168500ba12682cdb6f669f96be450e7b"
+  },
+  "validation_boundary": "Checkpoint format and source-path inspection only. No full model loading, A3 execution, model accuracy or performance acceptance."
+}

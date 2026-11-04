@@ -1,0 +1,184 @@
+{
+  "python": "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+  "torch": "2.10.0",
+  "source_sha256": {
+    "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend/vllm_ascend/models/deepseek_v41/engram/hash_state.py": "b27f4a05a98588791ca8ce42da946d44d6c3f18d3953590b697b146c5ad2fcb7",
+    "/Users/yangshengxin/Documents/Projects/03.AI/vllm/vllm/models/deepseek_v41/common/engram.py": "9e2095bc1579a446a959871b12f3d16716351aa4622570355be10d79788c204a",
+    "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend/vllm_ascend/worker/model_runner_v1.py": "03f0f32687fa7605ce6cead2f694ca8544f384a22580485299fb0d40fdc6129c",
+    "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend/tests/ut/models/test_engram.py": "372435a9896141538847f814e4300892fd4d45121e3ee8119d22e41ce78eb1cf"
+  },
+  "runs": [
+    {
+      "version": "current-code",
+      "passed": 18,
+      "failed": 0,
+      "cases": [
+        {
+          "case": "host_hash host=False",
+          "status": "passed"
+        },
+        {
+          "case": "host_hash host=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=None enable_enpu=False capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=None enable_enpu=False capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=None enable_enpu=True capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=None enable_enpu=True capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=False capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=False capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=True capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=True capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=forward enable_enpu=False capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=forward enable_enpu=False capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=forward enable_enpu=True capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=forward enable_enpu=True capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=callback enable_enpu=False capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=callback enable_enpu=False capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=callback enable_enpu=True capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=callback enable_enpu=True capture=True",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "version": "original-integration",
+      "passed": 5,
+      "failed": 13,
+      "cases": [
+        {
+          "case": "host_hash host=False",
+          "status": "passed"
+        },
+        {
+          "case": "host_hash host=True",
+          "status": "failed",
+          "error": "AssertionError: "
+        },
+        {
+          "case": "runner failure=None enable_enpu=False capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=None enable_enpu=False capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=None enable_enpu=True capture=False",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=None enable_enpu=True capture=True",
+          "status": "passed"
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=False capture=False",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=False capture=True",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=True capture=False",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=prepare enable_enpu=True capture=True",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=forward enable_enpu=False capture=False",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=forward enable_enpu=False capture=True",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=forward enable_enpu=True capture=False",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=forward enable_enpu=True capture=True",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=callback enable_enpu=False capture=False",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=callback enable_enpu=False capture=True",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=callback enable_enpu=True capture=False",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        },
+        {
+          "case": "runner failure=callback enable_enpu=True capture=True",
+          "status": "failed",
+          "error": "AssertionError: Expected 'retire_engram_lookups' to be called once. Called 0 times."
+        }
+      ]
+    }
+  ],
+  "limitations": "AST-isolated Python control flow and dispatch only. Uses actual source methods and test functions, real CPU torch, mocked package imports and NPU API/model/callback/event/metadata. Does not import full Ascend runtime or exercise NPU, CANN, HCCL, real graph capture/replay, native callback, or device synchronization."
+}

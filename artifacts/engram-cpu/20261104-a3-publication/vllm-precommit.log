@@ -1,0 +1,7 @@
+[INFO] Initializing environment for local:PyYAML,regex.
+[INFO] Initializing environment for local:PyYAML.
+[INFO] Initializing environment for local:mypy==1.20.2,regex,types-cachetools,types-setuptools,types-PyYAML,types-requests,types-torch,pydantic.
+[INFO] Initializing environment for local:dockerfile-parse.
+[INFO] Installing environment for https://github.com/astral-sh/ruff-pre-commit.
+[INFO] Once installed this environment will be reused.
+[INFO] This may take a few minutes...
