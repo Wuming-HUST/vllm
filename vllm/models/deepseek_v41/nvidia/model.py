@@ -537,6 +537,8 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
             vllm_config.engram_config and vllm_config.engram_config.dp_shared_memory
         )
         self.engram_swa_prefix: str | None = None
+        self._cpu_engram_inputs = None
+        self._cpu_engram_capacity = vllm_config.scheduler_config.max_num_batched_tokens
         if self.engram_layout is not None:
             local_engram = any(
                 isinstance(layer, DeepseekV4DecoderLayer) and layer.engram is not None
@@ -600,6 +602,94 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
             }
         )
 
+    def prepare_cpu_engram(
+        self,
+        input_ids,
+        positions,
+        lookback_token_ids=None,
+        *,
+        capture=False,
+        attn_metadata=None,
+    ):
+        """Refresh CPU-produced inputs before eager dispatch or graph replay."""
+        state = self.engram_hash
+        if state is None or getattr(state, "_cpu_hash", None) is None:
+            return {}
+        if input_ids is None:
+            return {}
+        count = input_ids.shape[0]
+        if count > self._cpu_engram_capacity:
+            raise ValueError("Engram input exceeds the fixed buffer capacity")
+        if self._cpu_engram_inputs is None:
+            if torch.cuda.is_current_stream_capturing():
+                raise RuntimeError("Prime CPU Engram buffers before graph capture")
+            layers = state.multipliers.shape[0]
+            columns = state.primes.numel() // layers
+            self._cpu_engram_inputs = (
+                torch.full(
+                    (self._cpu_engram_capacity, layers, columns),
+                    -1,
+                    dtype=torch.int32,
+                    device=positions.device,
+                ),
+                torch.zeros(
+                    self._cpu_engram_capacity, dtype=torch.bool, device=positions.device
+                ),
+            )
+        hashes, keep = (tensor[:count] for tensor in self._cpu_engram_inputs)
+        result = {"engram_hashes": hashes, "engram_mask": keep}
+        if capture:
+            return result
+        hashes.fill_(-1)
+        keep.zero_()
+        if attn_metadata is None and is_forward_context_available():
+            attn_metadata = get_forward_context().attn_metadata
+        if isinstance(attn_metadata, list):
+            attn_metadata = attn_metadata[dbo_current_ubatch_id()]
+        hashing = isinstance(attn_metadata, dict) and state.ensure_cache()
+        if hashing:
+            metadata = attn_metadata[self.engram_swa_prefix]
+            query = metadata.query_start_loc
+            hashing = query.numel() > 1
+        if hashing:
+            dead = image_sentinel_mask(input_ids)
+            keep.copy_(~dead)
+            if lookback_token_ids is None:
+                if not state.use_slot_cache:
+                    raise RuntimeError("CPU Engram requires runner lookback IDs")
+                lookback_token_ids = input_ids.new_full(
+                    (query.numel() - 1, state.lookback_depth), -1
+                )
+            hashes.copy_(
+                state(
+                    input_ids,
+                    positions,
+                    query,
+                    dead,
+                    lookback_token_ids,
+                    image_sentinel_mask(lookback_token_ids),
+                    metadata.slot_mapping,
+                    metadata.block_table,
+                )
+            )
+            # Capacity padding has no valid request or embedding consumer.
+            valid = state._cpu_hash.valid_tokens
+            keep[valid:].zero_()
+        if hashing or (not self.engram_dp_shared_memory and get_engram_dp_size() > 1):
+            gathered = gather_engram_hashes(
+                hashes, dp_shared_memory=self.engram_dp_shared_memory
+            )
+            for layer in islice(self.layers, self.start_layer, self.end_layer):
+                engram = getattr(layer, "engram", None)
+                if engram is not None:
+                    engram.prepare_embeddings(gathered[:, engram.layer_hash_index])
+        else:
+            for layer in islice(self.layers, self.start_layer, self.end_layer):
+                engram = getattr(layer, "engram", None)
+                if engram is not None:
+                    engram.staged_rows[:count].zero_()
+        return result
+
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -607,6 +697,8 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
         intermediate_tensors: IntermediateTensors | None,
         inputs_embeds: torch.Tensor | None = None,
         lookback_token_ids: torch.Tensor | None = None,
+        engram_hashes: torch.Tensor | None = None,
+        engram_mask: torch.Tensor | None = None,
     ) -> torch.Tensor | IntermediateTensors:
         if get_pp_group().is_first_rank:
             if inputs_embeds is not None:
@@ -624,10 +716,9 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
         # on the full token stream — before any sequence-parallel sharding —
         # and consumed by the engram layers (1 and 14) below. Skipped on
         # profile runs (KV cache unbound).
-        engram_hashes: torch.Tensor | None = None
-        engram_mask: torch.Tensor | None = None
         if (
-            self.engram_hash is not None
+            engram_hashes is None
+            and self.engram_hash is not None
             and input_ids is not None
             and is_forward_context_available()
         ):
@@ -1165,6 +1256,8 @@ class DeepseekV41LLMForCausalLM(
         intermediate_tensors: IntermediateTensors | None = None,
         inputs_embeds: torch.Tensor | None = None,
         lookback_token_ids: torch.Tensor | None = None,
+        engram_hashes: torch.Tensor | None = None,
+        engram_mask: torch.Tensor | None = None,
     ) -> torch.Tensor | IntermediateTensors:
         hidden_states = self.model(
             input_ids,
@@ -1172,8 +1265,27 @@ class DeepseekV41LLMForCausalLM(
             intermediate_tensors,
             inputs_embeds,
             lookback_token_ids=lookback_token_ids,
+            engram_hashes=engram_hashes,
+            engram_mask=engram_mask,
         )
         return hidden_states
+
+    @property
+    def uses_cpu_engram(self) -> bool:
+        state = self.model.engram_hash
+        return state is not None and getattr(state, "_cpu_hash", None) is not None
+
+    def prepare_cpu_engram(self, *args, **kwargs):
+        return self.model.prepare_cpu_engram(*args, **kwargs)
+
+    def finish_cpu_engram(self):
+        if self.uses_cpu_engram:
+            for layer in islice(
+                self.model.layers, self.model.start_layer, self.model.end_layer
+            ):
+                engram = getattr(layer, "engram", None)
+                if engram is not None:
+                    engram.embed_tokens._cpu_lookup.check()
 
     def get_mtp_target_hidden_states(self) -> torch.Tensor | None:
         """Pre-collapse residual stream buffer (max_num_batched_tokens,

@@ -1,0 +1,19 @@
+[INFO] Locking pre-commit directory
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/codespell-project/codespell.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/codespell-project/codespell:tomli.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/crate-ci/typos.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/igorshubovych/markdownlint-cli.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for local.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for local:regex.
+[INFO] Locking pre-commit directory
+[INFO] Installing environment for https://github.com/astral-sh/ruff-pre-commit.
+[INFO] Once installed this environment will be reused.
+[INFO] This may take a few minutes...
+Interrupted (^C): KeyboardInterrupt: 
+Check the log at /Users/yangshengxin/.cache/pre-commit/pre-commit.log

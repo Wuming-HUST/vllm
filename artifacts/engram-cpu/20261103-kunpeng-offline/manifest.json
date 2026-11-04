@@ -1,0 +1,246 @@
+{
+  "status": "completed",
+  "scope": "Kunpeng offline code preparation; local macOS NEON execution and Linux raw-kernel cross compilation only",
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]"
+  },
+  "repos": {
+    "vllm": {
+      "base": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "tag_commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "branch": "feat/engram-cpu-v41-integration",
+      "source_sha256": {
+        "setup.py": "2b60c3a568c4d77300eb97964a17b7b89a515ba31bfbd0443faf79c252fabb12",
+        "vllm/model_executor/layers/engram_cpu.py": "9d27f735df10d2e1db5fff8815ecc127d97c72a002e404ebfef75d0676db5979",
+        "tests/kernels/test_engram_cpu.py": "a597706b7646ef112b55a06feb1bd12b9079b781d6581094f122b7854e9441d4",
+        "tools/validate_engram_cpu.py": "9f5418d4be630feba3415947303f5035d2101924bb6a9c288e8d92e44896e366",
+        "benchmarks/kernels/benchmark_engram_cpu.py": "52e99c472ab2dbbcff09fcf569d20ea829b7468f92e0988c61bb17c17a967bde",
+        "CMakeLists.txt": "80c8b504a392ecf2d1e9d98a91affe34791e08647db5a76a92f175a4f57a04af",
+        "csrc/engram_cpu.cpp": "32cc8ef5f55614738f4b83cafcbc7088014766108c03f012cde6267501a6ed6e",
+        "csrc/engram_cpu_kernels.h": "9eef23b5e7eb65fbcf979942a076d0987cf67e3a269c384affa4486a3697902e",
+        "csrc/engram_cpu_neon.cpp": "0173a538b95717ea2dd74cb06275f7829a4a7360a8874026ef7e7f33649a8edd",
+        "csrc/engram_cpu_sve.cpp": "38fc16624e83ca9a66b85d7d71affc78679da07cd4face282c626cda7919732d",
+        "docs/contributing/model/engram_cpu.md": "4eb29c315e5dd57f921ca23e0a28be624ca556739dadc30c2eba02e593beaa7f",
+        "docs/contributing/model/engram_cpu_kunpeng.md": "2df172ce6a9c5706fc688b90716fdb9f44d1f1dda03db7b9b2bf41708b95a5cf",
+        "ENGRAM_CPU_INTEGRATION_PLAN.md": "4012868207897377520bc912da8c115fb37f0092a662e345e008b1977747665d"
+      }
+    },
+    "vllm-ascend": {
+      "base": "c09d3e20b9c45c80b34ae3781440d90904a44023",
+      "tag_commit": "c09d3e20b9c45c80b34ae3781440d90904a44023",
+      "branch": "feat/engram-cpu-v41-integration",
+      "source_sha256": {
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py": "9bda7e0b17a2c093f872f3e4dfdb8de1ec98c6caef892a9cafefbf178f9ab59f",
+        "tests/ut/models/test_engram.py": "261043b3a67e739f5dd759eb4e63029f009025a83150cf31003b3c8db85f0c49",
+        "vllm_ascend/ops/triton/docs/engram.md": "0b8501bda804e4d44b1f5a2fced3e07a6b379870a03e3f74a25c2ad79e657ab3",
+        "ENGRAM_CPU_INTEGRATION_PLAN.md": "49e6899f60718e66f2471459a1fe5b7f9b12ad700f8021c7ebbf6b472fc0743a"
+      }
+    }
+  },
+  "checks": [
+    {
+      "name": "neon-linux-cross-compile",
+      "argv": [
+        "/usr/bin/clang++",
+        "--target=aarch64-linux-gnu",
+        "-ffreestanding",
+        "-O3",
+        "-march=armv8-a",
+        "-std=c++20",
+        "-c",
+        "csrc/engram_cpu_neon.cpp",
+        "-o",
+        "build/engram-cpu/engram_cpu_neon.aarch64.o"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "neon-linux-cross-compile.txt"
+    },
+    {
+      "name": "sve2-linux-cross-compile",
+      "argv": [
+        "/usr/bin/clang++",
+        "--target=aarch64-linux-gnu",
+        "-ffreestanding",
+        "-O3",
+        "-march=armv8.5-a+sve2",
+        "-msve-vector-bits=scalable",
+        "-std=c++20",
+        "-c",
+        "csrc/engram_cpu_sve.cpp",
+        "-o",
+        "build/engram-cpu/engram_cpu_sve.aarch64.o"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "sve2-linux-cross-compile.txt"
+    },
+    {
+      "name": "cross-object-types",
+      "argv": [
+        "file",
+        "build/engram-cpu/engram_cpu_neon.aarch64.o",
+        "build/engram-cpu/engram_cpu_sve.aarch64.o"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "cross-object-types.txt"
+    },
+    {
+      "name": "vllm-python-style",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ruff",
+        "check",
+        "setup.py",
+        "vllm/model_executor/layers/engram_cpu.py",
+        "tests/kernels/test_engram_cpu.py",
+        "tools/validate_engram_cpu.py",
+        "benchmarks/kernels/benchmark_engram_cpu.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "vllm-python-style.txt"
+    },
+    {
+      "name": "vllm-python-format",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ruff",
+        "format",
+        "--check",
+        "vllm/model_executor/layers/engram_cpu.py",
+        "tests/kernels/test_engram_cpu.py",
+        "tools/validate_engram_cpu.py",
+        "benchmarks/kernels/benchmark_engram_cpu.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "vllm-python-format.txt"
+    },
+    {
+      "name": "native-format",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/clang-format",
+        "--dry-run",
+        "--Werror",
+        "csrc/engram_cpu.cpp",
+        "csrc/engram_cpu_kernels.h",
+        "csrc/engram_cpu_neon.cpp",
+        "csrc/engram_cpu_sve.cpp"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "native-format.txt"
+    },
+    {
+      "name": "ascend-python-style",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ruff",
+        "check",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "tests/ut/models/test_engram.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "exit_code": 0,
+      "output": "ascend-python-style.txt"
+    },
+    {
+      "name": "ascend-python-format",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ruff",
+        "format",
+        "--check",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "tests/ut/models/test_engram.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "exit_code": 0,
+      "output": "ascend-python-format.txt"
+    },
+    {
+      "name": "ascend-python-syntax",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "compileall",
+        "-q",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "tests/ut/models/test_engram.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "exit_code": 0,
+      "output": "ascend-python-syntax.txt"
+    },
+    {
+      "name": "vllm-whitespace",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "vllm-whitespace.txt"
+    },
+    {
+      "name": "ascend-whitespace",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "exit_code": 0,
+      "output": "ascend-whitespace.txt"
+    },
+    {
+      "name": "acle-vmovn_u32",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "/Users/yangshengxin/.agents/skills/arm-instructions-query/scripts/arm_query.py",
+        "intrinsic",
+        "--name",
+        "vmovn_u32",
+        "--family",
+        "neon",
+        "--json"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "acle-vmovn_u32.txt"
+    },
+    {
+      "name": "acle-svst1h_u32",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "/Users/yangshengxin/.agents/skills/arm-instructions-query/scripts/arm_query.py",
+        "intrinsic",
+        "--name",
+        "svst1h_u32",
+        "--family",
+        "sve",
+        "--json"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "output": "acle-svst1h_u32.txt"
+    }
+  ],
+  "numerical": {
+    "result": "93 passed, 28 SVE2 skipped",
+    "receipt": "build-validation/numerical.txt"
+  },
+  "offline_driver": {
+    "exit_code": 0,
+    "receipt": "build-validation/manifest.json"
+  },
+  "benchmark_smoke": {
+    "exit_code": 0,
+    "receipt": "benchmark-smoke/manifest.json",
+    "records": 38,
+    "performance_claim": false
+  },
+  "target_execution": false,
+  "serving_enabled": false,
+  "remote_probes_this_turn": 0
+}

@@ -1,0 +1,8 @@
+..............................................ssssssssssss...s.......... [ 57%]
+................................ssssssssssssss....s..                    [100%]
+=========================== short test summary info ============================
+SKIPPED [12] tests/kernels/test_engram_cpu.py:233: sve2 is unavailable on this build/host
+SKIPPED [1] tests/kernels/test_engram_cpu.py:299: sve2 is unavailable on this build/host
+SKIPPED [14] tests/kernels/test_engram_cpu.py:317: sve2 is unavailable on this build/host
+SKIPPED [1] tests/kernels/test_engram_cpu.py:369: sve2 is unavailable on this build/host
+97 passed, 28 skipped in 0.86s

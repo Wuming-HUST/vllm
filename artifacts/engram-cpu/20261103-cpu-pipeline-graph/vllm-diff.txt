@@ -1,0 +1,1004 @@
+diff --git i/CMakeLists.txt w/CMakeLists.txt
+index fbacfd9091..f6505ab068 100644
+--- i/CMakeLists.txt
++++ w/CMakeLists.txt
+@@ -169,6 +169,42 @@ if(Python_VERSION VERSION_GREATER_EQUAL "3.11")
+     WITH_SOABI)
+ endif()
+ 
++#
++# Host retrieval is also used by accelerator workers. Define this target before
++# the device-specific early return, rather than in cpu_extension.cmake.
++#
++define_extension_target(
++  engram_cpu_C
++  DESTINATION vllm
++  LANGUAGE CXX
++  SOURCES csrc/engram_cpu.cpp
++  USE_SABI 3.10
++  WITH_SOABI)
++target_link_libraries(engram_cpu_C PRIVATE ${CMAKE_DL_LIBS})
++
++# Keep the host baseline runnable on Kunpeng 920. ISA-specific objects must not
++# inherit a native CPU architecture from the build host.
++if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
++  target_sources(engram_cpu_C PRIVATE csrc/engram_cpu_neon.cpp)
++  target_compile_definitions(engram_cpu_C PRIVATE ENGRAM_CPU_NEON=1)
++  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
++    set_source_files_properties(csrc/engram_cpu.cpp csrc/engram_cpu_neon.cpp
++      PROPERTIES COMPILE_OPTIONS "-march=armv8-a")
++  endif()
++endif()
++
++if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
++   CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
++  include(CheckCXXCompilerFlag)
++  check_cxx_compiler_flag("-march=armv8.5-a+sve2" ENGRAM_CPU_SVE2_COMPILER)
++  if(ENGRAM_CPU_SVE2_COMPILER)
++    target_sources(engram_cpu_C PRIVATE csrc/engram_cpu_sve.cpp)
++    set_source_files_properties(csrc/engram_cpu_sve.cpp PROPERTIES
++      COMPILE_OPTIONS "-march=armv8.5-a+sve2;-msve-vector-bits=scalable")
++    target_compile_definitions(engram_cpu_C PRIVATE ENGRAM_CPU_SVE2=1)
++  endif()
++endif()
++
+ #
+ # Forward the non-CUDA device extensions to external CMake scripts.
+ #
+diff --git i/setup.py w/setup.py
+index 13692f3d20..ae7e0599b7 100644
+--- i/setup.py
++++ w/setup.py
+@@ -1021,6 +1021,7 @@ class precompiled_wheel_utils:
+                             "vllm/cumem_allocator.abi3.so",
+                             "vllm/spinloop.abi3.so",
+                             "vllm/fs_io_C.abi3.so",
++                            "vllm/engram_cpu_C.abi3.so",
+                             # ROCm-specific libraries
+                             "vllm/_rocm_C.abi3.so",
+                         }
+@@ -1347,6 +1348,9 @@ def get_requirements() -> list[str]:
+ 
+ ext_modules = []
+ 
++if not _no_device():
++    ext_modules.append(CMakeExtension(name="vllm.engram_cpu_C"))
++
+ if _is_cuda() or _is_hip():
+     ext_modules.append(CMakeExtension(name="vllm.cumem_allocator"))
+     # Optional since this doesn't get built (produce an .so file). This is just
+diff --git i/tests/distributed/test_engram_dp_shard.py w/tests/distributed/test_engram_dp_shard.py
+index c2fa0f857f..0ba739eb67 100644
+--- i/tests/distributed/test_engram_dp_shard.py
++++ w/tests/distributed/test_engram_dp_shard.py
+@@ -148,7 +148,7 @@ def test_engram_group_creation_honors_model_and_options(
+     assert parallel_state.get_etp_group().ranks == etp_ranks
+ 
+ 
+-def _worker(rank: int, tp_size: int, port: int) -> None:
++def _worker(rank: int, tp_size: int, port: int, lookup_backend: str) -> None:
+     torch.accelerator.set_device_index(rank)
+     update_environment_variables(
+         {
+@@ -198,12 +198,15 @@ def _worker(rank: int, tp_size: int, port: int) -> None:
+             [8, 7],
+             [False, True] if tp_size > 1 else [False],
+         ):
++            if lookup_backend == "cpu" and not cpu_offload:
++                continue
+             _check_table(
+                 vllm_config,
+                 cpu_offload,
+                 dp_shared_memory,
+                 n_heads,
+                 sequence_parallel,
++                lookup_backend,
+             )
+     finally:
+         cleanup_dist_env_and_memory()
+@@ -307,7 +310,12 @@ def _check_shared_storage_lifetime_and_failures(failure):
+ 
+ 
+ def _check_table(
+-    vllm_config, cpu_offload, dp_shared_memory, n_heads, sequence_parallel
++    vllm_config,
++    cpu_offload,
++    dp_shared_memory,
++    n_heads,
++    sequence_parallel,
++    lookup_backend="device",
+ ):
+     parallel = vllm_config.parallel_config
+     dp_size, tp_size = parallel.data_parallel_size, parallel.tensor_parallel_size
+@@ -352,6 +360,7 @@ def _check_table(
+                 engram_config=EngramConfig(
+                     cpu_offload=cpu_offload,
+                     dp_shared_memory=dp_shared_memory,
++                    lookup_backend=lookup_backend,
+                 ),
+                 scheduler_config=vllm_config.scheduler_config,
+                 load_config=load_config,
+@@ -452,7 +461,11 @@ def _check_table(
+             )
+         )
+         if replay:
+-            captures = ("full", "breakable")
++            captures = (
++                ("external_full", "breakable")
++                if lookup_backend == "cpu"
++                else ("full", "breakable")
++            )
+             for capture in captures:
+                 _check_prefetch_replay(
+                     engram,
+@@ -620,9 +633,13 @@ def _check_prefetch_replay(
+         tokens, len(head_sizes), DIM, device="cuda", dtype=torch.bfloat16
+     )
+ 
+-    def step():
++    def prepare():
+         gathered = gather_engram_hashes(ids.clone(), dp_shared_memory=dp_shared_memory)
+         engram.prepare_embeddings(gathered)
++
++    def step():
++        if capture != "external_full":
++            prepare()
+         output.copy_(engram.embed(ids))
+ 
+     with pytest.MonkeyPatch.context() as patch:
+@@ -630,6 +647,8 @@ def _check_prefetch_replay(
+         warmup = torch.cuda.Stream()
+         warmup.wait_stream(torch.cuda.current_stream())
+         with torch.cuda.stream(warmup):
++            if capture == "external_full":
++                prepare()
+             step()
+         if capture == "breakable":
+             graph = BreakableCUDAGraphCapture()
+@@ -643,6 +662,8 @@ def _check_prefetch_replay(
+         torch.cuda.current_stream().wait_stream(warmup)
+         for iteration in range(2):
+             ids.copy_(_make_ids(head_sizes, 8, seed=600 + iteration))
++            if capture == "external_full":
++                prepare()
+             graph.replay()
+             expected = _reference(weight.cuda(), scale_inv.cuda(), ids)
+             if engram.use_sequence_parallel:
+@@ -653,12 +674,15 @@ def _check_prefetch_replay(
+ 
+ @pytest.mark.skipif(not current_platform.is_cuda(), reason="CUDA required")
+ @pytest.mark.parametrize("tp_size", [1, 2])
+-def test_engram_table_shared_across_dp_replicas(tp_size, monkeypatch):
++@pytest.mark.parametrize("lookup_backend", ["device", "cpu"])
++def test_engram_table_shared_across_dp_replicas(tp_size, lookup_backend, monkeypatch):
+     """Check all storage modes with one process launch per TP/DP topology."""
+     if torch.accelerator.device_count() < WORLD_SIZE:
+         pytest.skip(f"Need {WORLD_SIZE} GPUs to run the test.")
+     monkeypatch.setenv("VLLM_USE_BREAKABLE_CUDAGRAPH", "1")
+-    mp.spawn(_worker, args=(tp_size, get_open_port()), nprocs=WORLD_SIZE)
++    mp.spawn(
++        _worker, args=(tp_size, get_open_port(), lookup_backend), nprocs=WORLD_SIZE
++    )
+     cleanup_dist_env_and_memory()
+ 
+ 
+diff --git i/tests/kernels/test_engram.py w/tests/kernels/test_engram.py
+index c2a7607cba..9bee5b500e 100644
+--- i/tests/kernels/test_engram.py
++++ w/tests/kernels/test_engram.py
+@@ -305,6 +305,22 @@ def test_engram_hash_cache_replay(query_len, capture, strided_slots, large_hashe
+     state.use_slot_cache = True
+     state.pad_id = 0
+     state.block_size = 16
++    from vllm.model_executor.layers.engram_cpu import CPUHashWorkspace
++
++    cpu_state = _hash_state(use_slot_cache=True)
++    for name in (
++        "token_map",
++        "multipliers",
++        "primes",
++        "offsets",
++        "pad_id",
++        "block_size",
++    ):
++        setattr(cpu_state, name, getattr(state, name))
++    cpu_state._cpu_hash = CPUHashWorkspace(
++        state.token_map, state.multipliers, state.primes, state.offsets, state.pad_id
++    )
++    cpu_state._cache = torch.full_like(cache, -1, device="cpu")
+     lookback = tensor([[-1] * 3] * 2, torch.int32)
+     args = (
+         input_ids,
+@@ -348,6 +364,7 @@ def test_engram_hash_cache_replay(query_len, capture, strided_slots, large_hashe
+         positions.copy_(tensor(pos))
+         slots.copy_(tensor(physical_slots))
+         dead_mask.copy_(tensor(dead, torch.bool))
++        cpu_output = cpu_state(*args)
+         if graph is None:
+             output = op(*args)
+         else:
+@@ -370,6 +387,11 @@ def test_engram_hash_cache_replay(query_len, capture, strided_slots, large_hashe
+             torch.testing.assert_close(
+                 output[:real].cpu(), expected[:real], rtol=0, atol=0
+             )
++            torch.testing.assert_close(
++                cpu_output[:real].cpu(), output[:real].cpu(), rtol=0, atol=0
++            )
++        assert cpu_output[2 * query_len :].eq(-1).all()
++        assert cpu_state._cache.tolist() == expected_cache
+         assert cache.cpu().tolist() == expected_cache
+ 
+     empty_output = state(
+@@ -703,13 +725,22 @@ def test_engram_lookup_reuses_jit_across_token_shapes():
+ 
+ @pytest.mark.skipif(not current_platform.is_cuda(), reason="CUDA required")
+ @pytest.mark.parametrize("cpu_offload", [False, True])
++@pytest.mark.parametrize("lookup_backend", ["device", "cpu"])
+ @pytest.mark.parametrize("background", [False, True])
+ @pytest.mark.parametrize("num_tokens", [1, 7, 256])
+-def test_engram_lookup_matches_torch(cpu_offload, background, num_tokens):
++def test_engram_lookup_matches_torch(
++    cpu_offload, lookup_backend, background, num_tokens
++):
+     """The fused gather must be bit-exact with the torch dequant path it
+     replaces, from HBM and from pinned host memory alike, and must contribute
+     zeros for rows another TP rank owns."""
++    if lookup_backend == "cpu" and not cpu_offload:
++        pytest.skip("CPU execution requires host storage")
+     layer = _make_embedding(cpu_offload)
++    if lookup_backend == "cpu":
++        from vllm.model_executor.layers.engram_cpu import CPUEmbeddingLookup
++
++        layer._cpu_lookup = CPUEmbeddingLookup(legacy_e8m0=True)
+     cols, rows = 24, layer.part_num_embeddings
+     ids = torch.randint(0, rows, (num_tokens, cols), dtype=torch.int32, device="cuda")
+     expected = _reference_lookup(
+diff --git i/tests/test_config.py w/tests/test_config.py
+index f75592f089..65a74ddccc 100644
+--- i/tests/test_config.py
++++ w/tests/test_config.py
+@@ -1277,6 +1277,29 @@ def test_engram_dp_shared_memory_requires_cpu_offload():
+         EngramConfig(cpu_offload=False, dp_shared_memory=True)
+ 
+ 
++def test_cpu_engram_requires_host_storage_and_deepseek_without_disabling_graphs():
++    with pytest.raises(ValueError, match="requires cpu_offload"):
++        EngramConfig(cpu_offload=False, lookup_backend="cpu")
++    config = EngramConfig(cpu_offload=True, lookup_backend="cpu")
++    model = SimpleNamespace(architecture="DeepseekV41ForCausalLM", enforce_eager=False)
++    config.verify_cpu_backend(model)
++    model.enforce_eager = True
++    config.verify_cpu_backend(model)
++    model.architecture = "Qwen4ExpForCausalLM"
++    with pytest.raises(ValueError, match="DeepSeek V4.1"):
++        config.verify_cpu_backend(model)
++
++
++def test_cpu_engram_settings_have_distinct_execution_hashes():
++    settings = [
++        EngramConfig(),
++        EngramConfig(lookup_backend="cpu"),
++        EngramConfig(lookup_backend="cpu", cpu_kernel="scalar"),
++        EngramConfig(lookup_backend="cpu", cpu_prefetch_distance=4),
++    ]
++    assert len({s.compute_hash() for s in settings}) == len(settings)
++
++
+ @pytest.mark.parametrize(
+     "dp_size,load_format,multithread,error",
+     [
+diff --git i/vllm/config/engram.py w/vllm/config/engram.py
+index 5abb2bd34a..9f1b4bfd3b 100644
+--- i/vllm/config/engram.py
++++ w/vllm/config/engram.py
+@@ -1,7 +1,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ 
+-from typing import TYPE_CHECKING
++from typing import TYPE_CHECKING, Literal
+ 
+ from pydantic import Field, model_validator
+ from typing_extensions import Self
+@@ -39,13 +39,24 @@ def model_has_engram_layers(model_config: "ModelConfig | None") -> bool:
+ 
+ @config
+ class EngramConfig:
+-    """Configuration for Engram embedding storage and sharding."""
++    """Configuration for Engram embedding storage, execution and sharding."""
+ 
+     cpu_offload: bool = Field(default_factory=_default_cpu_offload)
+-    """Store embedding weights in pinned CPU memory for UVA lookup.
++    """Store embedding weights in pinned CPU memory for UVA or CPU lookup.
+     Defaults to VLLM_PLE_CPU_OFFLOAD, which is enabled by default. An explicit
+     value takes precedence over the environment variable."""
+ 
++    lookup_backend: Literal["device", "cpu"] = "device"
++    """Execute retrieval on the device (including UVA) or on the CPU.
++    CPU mode executes compression, hash and retrieval outside device capture.
++    Requires DeepSeek V4.1 and cpu_offload. Parallel collectives stay on device."""
++
++    cpu_kernel: Literal["auto", "scalar", "neon", "sve2"] = "auto"
++    """CPU gather implementation. Auto selects usable NEON or portable C++."""
++
++    cpu_prefetch_distance: int = Field(default=0, ge=0)
++    """Future local output head rows to prefetch; zero disables prefetch."""
++
+     embedding_across_dp: bool = False
+     """Shard embeddings across TP and all DP ranks when enabled.
+     Otherwise, each DP rank has a separate TP-sharded embedding replica."""
+@@ -60,12 +71,26 @@ class EngramConfig:
+     def _validate_shared_memory(self) -> Self:
+         if self.dp_shared_memory and not self.cpu_offload:
+             raise ValueError("dp_shared_memory requires cpu_offload=True")
++        if self.lookup_backend == "cpu" and not self.cpu_offload:
++            raise ValueError("CPU Engram lookup requires cpu_offload=True")
+         return self
+ 
++    def verify_cpu_backend(self, model_config: "ModelConfig | None") -> None:
++        """Guard host-side execution before model allocation or graph capture."""
++        if self.lookup_backend != "cpu":
++            return
++        if (
++            model_config is None
++            or model_config.architecture != "DeepseekV41ForCausalLM"
++        ):
++            raise ValueError("CPU Engram lookup currently requires DeepSeek V4.1")
++
+     def verify_model_config(self, model_config: "ModelConfig | None") -> None:
+         """Reject Engram configuration for models without n-gram embeddings."""
+         from vllm.platforms import current_platform
+ 
++        self.verify_cpu_backend(model_config)
++
+         field = (
+             _NGRAM_LAYER_FIELDS.get(model_config.architecture)
+             if model_config is not None
+diff --git i/vllm/models/deepseek_v41/common/engram.py w/vllm/models/deepseek_v41/common/engram.py
+index c415bbaa6e..3c2c66fc8f 100644
+--- i/vllm/models/deepseek_v41/common/engram.py
++++ w/vllm/models/deepseek_v41/common/engram.py
+@@ -428,6 +428,16 @@ class NgramHashState(nn.Module):
+         self.register_buffer("primes", torch.tensor(layout.primes), persistent=False)
+         self.register_buffer("offsets", layout.offsets, persistent=False)
+         self.register_buffer("multipliers", multipliers, persistent=False)
++        self._cpu_hash = None
++        if (
++            vllm_config.engram_config is not None
++            and vllm_config.engram_config.lookup_backend == "cpu"
++        ):
++            from vllm.model_executor.layers.engram_cpu import CPUHashWorkspace
++
++            self._cpu_hash = CPUHashWorkspace(
++                self.token_map, self.multipliers, self.primes, self.offsets, self.pad_id
++            )
+         logger.info(
+             "Built engram token map (%d -> %d ids) for layers %s",
+             len(token_map),
+@@ -456,7 +466,9 @@ class NgramHashState(nn.Module):
+         self._cache = torch.zeros(
+             kv_cache.shape[0] * self.block_size,
+             dtype=torch.int32,
+-            device=kv_cache.device,
++            device="cpu"
++            if getattr(self, "_cpu_hash", None) is not None
++            else kv_cache.device,
+         )
+         self._kv_cache_ref = weakref.ref(kv_cache)
+         return True
+@@ -492,6 +504,17 @@ class NgramHashState(nn.Module):
+         History comes from the current chunk, then the runner's lookback
+         window, then the optional V1 slot cache. V2 needs only one launch.
+         """
++        if getattr(self, "_cpu_hash", None) is not None:
++            return self._forward_cpu(
++                input_ids,
++                positions,
++                query_start_loc,
++                dead_mask,
++                lookback_token_ids,
++                lookback_dead_mask,
++                slot_mapping,
++                block_table,
++            )
+         cache = self._cache if self.use_slot_cache else None
+         num_tokens = input_ids.shape[0]
+         num_layers, max_ngram = self.multipliers.shape
+@@ -559,6 +582,32 @@ class NgramHashState(nn.Module):
+         )
+         return output
+ 
++    def _forward_cpu(
++        self,
++        input_ids,
++        positions,
++        query_start_loc,
++        dead_mask,
++        lookback_token_ids,
++        lookback_dead_mask,
++        slot_mapping,
++        block_table,
++    ):
++        workspace = self._cpu_hash
++        hashes = workspace.run(
++            input_ids,
++            positions,
++            query_start_loc,
++            dead_mask,
++            lookback_token_ids,
++            lookback_dead_mask,
++            slot_mapping,
++            block_table,
++            cache=self._cache if self.use_slot_cache else None,
++            block_size=self.block_size,
++        )
++        return workspace.publish(hashes, input_ids.device)
++
+ 
+ def _engram_head_shard_weight_loader(
+     param: torch.nn.Parameter, loaded_weight: torch.Tensor
+diff --git i/vllm/models/deepseek_v41/nvidia/engram.py w/vllm/models/deepseek_v41/nvidia/engram.py
+index 624a36c214..b192ae7c21 100644
+--- i/vllm/models/deepseek_v41/nvidia/engram.py
++++ w/vllm/models/deepseek_v41/nvidia/engram.py
+@@ -198,14 +198,17 @@ class DPSharedEngramStorage:
+         # weights are ready after the last weight-loader call returns.
+         torch.distributed.barrier(group=self.group.cpu_group)
+ 
+-    def get_views(
+-        self, weight: torch.Tensor, scales: torch.Tensor
+-    ) -> tuple[torch.Tensor, torch.Tensor]:
++    def validate_storage(self, weight: torch.Tensor, scales: torch.Tensor) -> None:
+         if (weight.data_ptr(), scales.data_ptr()) != (
+             self.weight.data_ptr(),
+             self.weight_scale_inv.data_ptr(),
+         ):
+             raise RuntimeError("Shared Engram parameter storage must not be replaced")
++
++    def get_views(
++        self, weight: torch.Tensor, scales: torch.Tensor
++    ) -> tuple[torch.Tensor, torch.Tensor]:
++        self.validate_storage(weight, scales)
+         if self._views is None:
+             self._views = (
+                 get_accelerator_view_from_cpu_tensor(self.weight),
+@@ -227,8 +230,26 @@ class ParallelEngramEmbedding(BaseParallelEngramEmbedding):
+         block_size: int = 32,
+         cpu_offload: bool = False,
+         dp_shared_memory: bool = False,
++        lookup_backend: str = "device",
++        cpu_kernel: str = "auto",
++        cpu_prefetch_distance: int = 0,
+     ) -> None:
+         self.cpu_offload = cpu_offload
++        self._cpu_lookup = None
++        if lookup_backend == "cpu":
++            if not cpu_offload:
++                raise ValueError("CPU Engram lookup requires cpu_offload=True")
++            from vllm.model_executor.layers.engram_cpu import CPUEmbeddingLookup
++
++            # Preserve this tag's NVIDIA exponent-bit decoder, including the
++            # special E8M0 bytes that differ from Ascend's native decoder.
++            self._cpu_lookup = CPUEmbeddingLookup(
++                backend=cpu_kernel,
++                prefetch_distance=cpu_prefetch_distance,
++                legacy_e8m0=True,
++            )
++        elif lookup_backend != "device":
++            raise ValueError(f"unknown Engram lookup backend: {lookup_backend}")
+         self.dp_shared_memory = dp_shared_memory
+         self.dp_size = get_engram_dp_size()
+         if dp_shared_memory:
+@@ -311,6 +332,25 @@ class ParallelEngramEmbedding(BaseParallelEngramEmbedding):
+         assert self._views is not None
+         return self._views
+ 
++    def lookup(
++        self, indices: torch.Tensor, out: torch.Tensor, background: bool = False
++    ) -> None:
++        cpu_lookup = getattr(self, "_cpu_lookup", None)
++        if cpu_lookup is None:
++            return super().lookup(indices, out, background=background)
++        if self._shared_memory is not None:
++            self._shared_memory.validate_storage(self.weight, self.weight_scale_inv)
++        cpu_lookup.lookup(
++            self.weight,
++            self.weight_scale_inv,
++            indices,
++            out,
++            head_start=self.head_start,
++            valid_heads=min(self.part_n_hash_cols, self.n_hash_cols - self.head_start),
++            vocab_start=self.vocab_start_idx,
++            block_size=self.block_size,
++        )
++
+     def forward(self, indices: torch.Tensor) -> torch.Tensor:
+         if self.dp_size == 1:
+             return super().forward(indices)
+@@ -351,6 +391,7 @@ class Engram(BaseEngram):
+     """NVIDIA Engram with asynchronous offload and node-local DP lookup."""
+ 
+     _prefetch_stream: torch.cuda.Stream | None = None
++    _cpu_ready: torch.cuda.Event | None = None
+ 
+     def _create_embedding(
+         self, layout: EngramLayout, layer_hash_index: int
+@@ -363,10 +404,19 @@ class Engram(BaseEngram):
+             tuple(size for order in layout.primes[layer_hash_index] for size in order),
+             cpu_offload=engram_config.cpu_offload,
+             dp_shared_memory=engram_config.dp_shared_memory,
++            lookup_backend=engram_config.lookup_backend,
++            cpu_kernel=engram_config.cpu_kernel,
++            cpu_prefetch_distance=engram_config.cpu_prefetch_distance,
+         )
+ 
+     def _init_staging(self, max_tokens: int, head_dim: int) -> None:
+         super()._init_staging(max_tokens * self.embed_tokens.dp_size, head_dim)
++        if getattr(self.embed_tokens, "_cpu_lookup", None) is not None:
++            self.staged_rows.zero_()
++            # FULL graphs must retain a real external wait node. A normal
++            # event/stream wait can be elided as a capture-time dependency.
++            self._cpu_ready = torch.cuda.Event(external=True)
++            self._cpu_ready.record(torch.cuda.current_stream())
+         if self.embed_tokens.cpu_offload:
+             self._prefetch_stream = torch.cuda.Stream(device=self.staged_rows.device)
+ 
+@@ -388,10 +438,15 @@ class Engram(BaseEngram):
+         hash_ids.record_stream(stream)
+         with torch.cuda.stream(stream):
+             self.embed_tokens.lookup(hash_ids, rows, background=True)
++            if self._cpu_ready is not None:
++                self._cpu_ready.record(stream)
+ 
+     @eager_break_during_capture
+     def _finish_prefetch(self, stream: torch.cuda.Stream) -> None:
+-        torch.cuda.current_stream().wait_stream(stream)
++        if self._cpu_ready is not None:
++            self._cpu_ready.wait(torch.cuda.current_stream())
++        else:
++            torch.cuda.current_stream().wait_stream(stream)
+ 
+     def _ready_rows(self, num_tokens: int) -> torch.Tensor:
+         if self._prefetch_stream is not None:
+diff --git i/vllm/models/deepseek_v41/nvidia/model.py w/vllm/models/deepseek_v41/nvidia/model.py
+index 9c9719e977..e12871025e 100644
+--- i/vllm/models/deepseek_v41/nvidia/model.py
++++ w/vllm/models/deepseek_v41/nvidia/model.py
+@@ -537,6 +537,8 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
+             vllm_config.engram_config and vllm_config.engram_config.dp_shared_memory
+         )
+         self.engram_swa_prefix: str | None = None
++        self._cpu_engram_inputs = None
++        self._cpu_engram_capacity = vllm_config.scheduler_config.max_num_batched_tokens
+         if self.engram_layout is not None:
+             local_engram = any(
+                 isinstance(layer, DeepseekV4DecoderLayer) and layer.engram is not None
+@@ -600,6 +602,94 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
+             }
+         )
+ 
++    def prepare_cpu_engram(
++        self,
++        input_ids,
++        positions,
++        lookback_token_ids=None,
++        *,
++        capture=False,
++        attn_metadata=None,
++    ):
++        """Refresh CPU-produced inputs before eager dispatch or graph replay."""
++        state = self.engram_hash
++        if state is None or getattr(state, "_cpu_hash", None) is None:
++            return {}
++        if input_ids is None:
++            return {}
++        count = input_ids.shape[0]
++        if count > self._cpu_engram_capacity:
++            raise ValueError("Engram input exceeds the fixed buffer capacity")
++        if self._cpu_engram_inputs is None:
++            if torch.cuda.is_current_stream_capturing():
++                raise RuntimeError("Prime CPU Engram buffers before graph capture")
++            layers = state.multipliers.shape[0]
++            columns = state.primes.numel() // layers
++            self._cpu_engram_inputs = (
++                torch.full(
++                    (self._cpu_engram_capacity, layers, columns),
++                    -1,
++                    dtype=torch.int32,
++                    device=positions.device,
++                ),
++                torch.zeros(
++                    self._cpu_engram_capacity, dtype=torch.bool, device=positions.device
++                ),
++            )
++        hashes, keep = (tensor[:count] for tensor in self._cpu_engram_inputs)
++        result = {"engram_hashes": hashes, "engram_mask": keep}
++        if capture:
++            return result
++        hashes.fill_(-1)
++        keep.zero_()
++        if attn_metadata is None and is_forward_context_available():
++            attn_metadata = get_forward_context().attn_metadata
++        if isinstance(attn_metadata, list):
++            attn_metadata = attn_metadata[dbo_current_ubatch_id()]
++        hashing = isinstance(attn_metadata, dict) and state.ensure_cache()
++        if hashing:
++            metadata = attn_metadata[self.engram_swa_prefix]
++            query = metadata.query_start_loc
++            hashing = query.numel() > 1
++        if hashing:
++            dead = image_sentinel_mask(input_ids)
++            keep.copy_(~dead)
++            if lookback_token_ids is None:
++                if not state.use_slot_cache:
++                    raise RuntimeError("CPU Engram requires runner lookback IDs")
++                lookback_token_ids = input_ids.new_full(
++                    (query.numel() - 1, state.lookback_depth), -1
++                )
++            hashes.copy_(
++                state(
++                    input_ids,
++                    positions,
++                    query,
++                    dead,
++                    lookback_token_ids,
++                    image_sentinel_mask(lookback_token_ids),
++                    metadata.slot_mapping,
++                    metadata.block_table,
++                )
++            )
++            # Capacity padding has no valid request or embedding consumer.
++            valid = state._cpu_hash.valid_tokens
++            keep[valid:].zero_()
++        if hashing or (not self.engram_dp_shared_memory and get_engram_dp_size() > 1):
++            gathered = gather_engram_hashes(
++                hashes, dp_shared_memory=self.engram_dp_shared_memory
++            )
++            for layer in islice(self.layers, self.start_layer, self.end_layer):
++                engram = getattr(layer, "engram", None)
++                if engram is not None:
++                    engram.prepare_embeddings(gathered[:, engram.layer_hash_index])
++        else:
++            for layer in islice(self.layers, self.start_layer, self.end_layer):
++                engram = getattr(layer, "engram", None)
++                if engram is not None:
++                    engram.staged_rows[:count].zero_()
++        return result
++
+     def forward(
+         self,
+         input_ids: torch.Tensor,
+@@ -607,6 +697,8 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
+         intermediate_tensors: IntermediateTensors | None,
+         inputs_embeds: torch.Tensor | None = None,
+         lookback_token_ids: torch.Tensor | None = None,
++        engram_hashes: torch.Tensor | None = None,
++        engram_mask: torch.Tensor | None = None,
+     ) -> torch.Tensor | IntermediateTensors:
+         if get_pp_group().is_first_rank:
+             if inputs_embeds is not None:
+@@ -624,10 +716,9 @@ class DeepseekV4Model(nn.Module, EagleModelMixin):
+         # on the full token stream — before any sequence-parallel sharding —
+         # and consumed by the engram layers (1 and 14) below. Skipped on
+         # profile runs (KV cache unbound).
+-        engram_hashes: torch.Tensor | None = None
+-        engram_mask: torch.Tensor | None = None
+         if (
+-            self.engram_hash is not None
++            engram_hashes is None
++            and self.engram_hash is not None
+             and input_ids is not None
+             and is_forward_context_available()
+         ):
+@@ -1165,6 +1256,8 @@ class DeepseekV41LLMForCausalLM(
+         intermediate_tensors: IntermediateTensors | None = None,
+         inputs_embeds: torch.Tensor | None = None,
+         lookback_token_ids: torch.Tensor | None = None,
++        engram_hashes: torch.Tensor | None = None,
++        engram_mask: torch.Tensor | None = None,
+     ) -> torch.Tensor | IntermediateTensors:
+         hidden_states = self.model(
+             input_ids,
+@@ -1172,9 +1265,28 @@ class DeepseekV41LLMForCausalLM(
+             intermediate_tensors,
+             inputs_embeds,
+             lookback_token_ids=lookback_token_ids,
++            engram_hashes=engram_hashes,
++            engram_mask=engram_mask,
+         )
+         return hidden_states
+ 
++    @property
++    def uses_cpu_engram(self) -> bool:
++        state = self.model.engram_hash
++        return state is not None and getattr(state, "_cpu_hash", None) is not None
++
++    def prepare_cpu_engram(self, *args, **kwargs):
++        return self.model.prepare_cpu_engram(*args, **kwargs)
++
++    def finish_cpu_engram(self):
++        if self.uses_cpu_engram:
++            for layer in islice(
++                self.model.layers, self.model.start_layer, self.model.end_layer
++            ):
++                engram = getattr(layer, "engram", None)
++                if engram is not None:
++                    engram.embed_tokens._cpu_lookup.check()
++
+     def get_mtp_target_hidden_states(self) -> torch.Tensor | None:
+         """Pre-collapse residual stream buffer (max_num_batched_tokens,
+         hc_mult * hidden_size) for the MTP draft model. Populated by
+diff --git i/vllm/models/deepseek_v41/nvidia/model_state.py w/vllm/models/deepseek_v41/nvidia/model_state.py
+index 1ba0f41603..f4a1dd1722 100644
+--- i/vllm/models/deepseek_v41/nvidia/model_state.py
++++ w/vllm/models/deepseek_v41/nvidia/model_state.py
+@@ -95,4 +95,11 @@ class DeepseekV41ModelState(DefaultModelState):
+             # The captured graph reads this buffer; replays refill it in place.
+             self.lookback_token_ids.fill_(-1)
+             model_inputs["lookback_token_ids"] = self.lookback_token_ids
++        prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
++        if prepare_engram is not None and getattr(self.model, "uses_cpu_engram", False):
++            # Establish fixed graph inputs without executing CPU/history work.
++            dummy = torch.zeros(num_tokens, dtype=torch.int32, device=self.device)
++            model_inputs.update(
++                prepare_engram(dummy, dummy, self.lookback_token_ids, capture=True)
++            )
+         return model_inputs
+diff --git i/vllm/models/deepseek_v41/nvidia/vl_model.py w/vllm/models/deepseek_v41/nvidia/vl_model.py
+index bfbcaa89a1..1298004fbe 100644
+--- i/vllm/models/deepseek_v41/nvidia/vl_model.py
++++ w/vllm/models/deepseek_v41/nvidia/vl_model.py
+@@ -297,6 +297,16 @@ class DeepseekV41ForCausalLM(nn.Module, SupportsMultiModal, SupportsPP, Supports
+     def token_lookback_depth(self) -> int:
+         return self.language_model.token_lookback_depth
+ 
++    @property
++    def uses_cpu_engram(self) -> bool:
++        return self.language_model.uses_cpu_engram
++
++    def prepare_cpu_engram(self, *args, **kwargs):
++        return self.language_model.prepare_cpu_engram(*args, **kwargs)
++
++    def finish_cpu_engram(self):
++        self.language_model.finish_cpu_engram()
++
+     def forward(
+         self,
+         input_ids: torch.Tensor,
+@@ -304,6 +314,8 @@ class DeepseekV41ForCausalLM(nn.Module, SupportsMultiModal, SupportsPP, Supports
+         intermediate_tensors=None,
+         inputs_embeds: torch.Tensor | None = None,
+         lookback_token_ids: torch.Tensor | None = None,
++        engram_hashes: torch.Tensor | None = None,
++        engram_mask: torch.Tensor | None = None,
+         **kwargs,
+     ) -> torch.Tensor:
+         return self.language_model(
+@@ -312,6 +324,8 @@ class DeepseekV41ForCausalLM(nn.Module, SupportsMultiModal, SupportsPP, Supports
+             intermediate_tensors,
+             inputs_embeds,
+             lookback_token_ids=lookback_token_ids,
++            engram_hashes=engram_hashes,
++            engram_mask=engram_mask,
+         )
+ 
+     def compute_logits(self, hidden_states: torch.Tensor) -> torch.Tensor | None:
+diff --git i/vllm/v1/worker/gpu/model_runner.py w/vllm/v1/worker/gpu/model_runner.py
+index b66d552cb4..f0ce7ffd67 100644
+--- i/vllm/v1/worker/gpu/model_runner.py
++++ w/vllm/v1/worker/gpu/model_runner.py
+@@ -1897,55 +1897,93 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             num_tokens=input_batch.num_tokens,
+         )
+ 
+-        # Run model.
+-        if batch_desc.cg_mode == CUDAGraphMode.FULL:
+-            # Use explicit cudagraph replay for FULL mode.
+-            # NOTE(woosuk): Here, we don't need to pass the input tensors,
+-            # because they are already copied to the CUDA graph input buffers.
+-            assert self.cudagraph_manager is not None
+-            self.kv_connector.pre_forward(
+-                **connector_kwargs, attn_metadata=attn_metadata
+-            )
+-            model_output = self.cudagraph_manager.run_fullgraph(batch_desc)
+-        else:
+-            # For piecewise and eager mode, just call model().
+-            batch_descriptor = BatchDescriptor(
+-                num_tokens=input_batch.num_tokens_after_padding,
+-                has_lora=self.lora_config is not None,
+-                num_active_loras=batch_desc.num_active_loras,
+-            )
++        try:
++            # Run model.
++            if batch_desc.cg_mode == CUDAGraphMode.FULL:
++                # Use explicit cudagraph replay for FULL mode.
++                # NOTE(woosuk): Here, we don't need to pass the input tensors,
++                # because they are already copied to the CUDA graph input buffers.
++                assert self.cudagraph_manager is not None
++                self.kv_connector.pre_forward(
++                    **connector_kwargs, attn_metadata=attn_metadata
++                )
++                prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
++                if prepare_engram is not None and getattr(
++                    self.model, "uses_cpu_engram", False
++                ):
++                    with set_forward_context(
++                        attn_metadata,
++                        self.vllm_config,
++                        num_tokens=input_batch.num_tokens_after_padding,
++                        cudagraph_runtime_mode=batch_desc.cg_mode,
++                        num_tokens_across_dp=(
++                            dp_sync.num_tokens_across_dp
++                            if dp_sync is not None
++                            else None
++                        ),
++                        slot_mapping=slot_mappings_by_layer,
++                        is_padding=input_batch.is_padding,
++                    ):
++                        prepare_engram(
++                            model_inputs.get("input_ids"),
++                            model_inputs["positions"],
++                            model_inputs.get("lookback_token_ids"),
++                        )
++                model_output = self.cudagraph_manager.run_fullgraph(batch_desc)
++            else:
++                # For piecewise and eager mode, just call model().
++                batch_descriptor = BatchDescriptor(
++                    num_tokens=input_batch.num_tokens_after_padding,
++                    has_lora=self.lora_config is not None,
++                    num_active_loras=batch_desc.num_active_loras,
++                )
+ 
+-            with set_forward_context(
+-                attn_metadata,
+-                self.vllm_config,
+-                num_tokens=input_batch.num_tokens_after_padding,
+-                cudagraph_runtime_mode=batch_desc.cg_mode,
+-                num_tokens_across_dp=(
+-                    dp_sync.num_tokens_across_dp if dp_sync is not None else None
+-                ),
+-                batch_descriptor=batch_descriptor,
+-                ubatch_slices=ubatch_slices,
+-                slot_mapping=slot_mappings_by_layer,
+-                skip_compiled=skip_compiled,
+-                is_padding=input_batch.is_padding,
+-            ):
+-                self.kv_connector.pre_forward(**connector_kwargs)
+-                if ubatch_state is not None:
+-                    assert self.ubatch_runner is not None
+-                    model_output = self.ubatch_runner.run(
+-                        self.model, model_inputs, ubatch_state
+-                    )
+-                elif batch_desc.cg_mode == CUDAGraphMode.PIECEWISE:
+-                    # Run the PIECEWISE graph (compiled PW cudagraph or breakable
+-                    # cudagraph, chosen inside run_pw_graph). cg_mode is only
+-                    # PIECEWISE after the cudagraph manager exists.
+-                    assert self.cudagraph_manager is not None
+-                    model_output = self.cudagraph_manager.run_pw_graph(
+-                        self.model, model_inputs
+-                    )
+-                else:
+-                    # Eager (NONE): call the raw model directly.
+-                    model_output = self.model(**model_inputs)
++                with set_forward_context(
++                    attn_metadata,
++                    self.vllm_config,
++                    num_tokens=input_batch.num_tokens_after_padding,
++                    cudagraph_runtime_mode=batch_desc.cg_mode,
++                    num_tokens_across_dp=(
++                        dp_sync.num_tokens_across_dp if dp_sync is not None else None
++                    ),
++                    batch_descriptor=batch_descriptor,
++                    ubatch_slices=ubatch_slices,
++                    slot_mapping=slot_mappings_by_layer,
++                    skip_compiled=skip_compiled,
++                    is_padding=input_batch.is_padding,
++                ):
++                    self.kv_connector.pre_forward(**connector_kwargs)
++                    prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
++                    if prepare_engram is not None and getattr(
++                        self.model, "uses_cpu_engram", False
++                    ):
++                        model_inputs.update(
++                            prepare_engram(
++                                model_inputs.get("input_ids"),
++                                model_inputs["positions"],
++                                model_inputs.get("lookback_token_ids"),
++                            )
++                        )
++                    if ubatch_state is not None:
++                        assert self.ubatch_runner is not None
++                        model_output = self.ubatch_runner.run(
++                            self.model, model_inputs, ubatch_state
++                        )
++                    elif batch_desc.cg_mode == CUDAGraphMode.PIECEWISE:
++                        # Run the PIECEWISE graph (compiled PW cudagraph or breakable
++                        # cudagraph, chosen inside run_pw_graph). cg_mode is only
++                        # PIECEWISE after the cudagraph manager exists.
++                        assert self.cudagraph_manager is not None
++                        model_output = self.cudagraph_manager.run_pw_graph(
++                            self.model, model_inputs
++                        )
++                    else:
++                        # Eager (NONE): call the raw model directly.
++                        model_output = self.model(**model_inputs)
++        finally:
++            finish_engram = getattr(self.model, "finish_cpu_engram", None)
++            if finish_engram is not None:
++                finish_engram()
+ 
+         self.kv_connector.finish_forward()
+ 
+diff --git i/vllm/v1/worker/gpu_model_runner.py w/vllm/v1/worker/gpu_model_runner.py
+index 97a59bd273..0b71859d9e 100644
+--- i/vllm/v1/worker/gpu_model_runner.py
++++ w/vllm/v1/worker/gpu_model_runner.py
+@@ -55,6 +55,7 @@ from vllm.distributed.parallel_state import (
+ )
+ from vllm.forward_context import (
+     BatchDescriptor,
++    get_forward_context,
+     set_forward_context,
+ )
+ from vllm.logger import init_logger
+@@ -3876,13 +3877,34 @@ class GPUModelRunner(
+         Returns:
+             Model output tensor
+         """
+-        return self.model(
+-            input_ids=input_ids,
+-            positions=positions,
+-            intermediate_tensors=intermediate_tensors,
+-            inputs_embeds=inputs_embeds,
+-            **model_kwargs,
+-        )
++        prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
++        if (
++            prepare_engram is not None
++            and input_ids is not None
++            and getattr(self.model, "uses_cpu_engram", False)
++        ):
++            context = get_forward_context()
++            model_kwargs.update(
++                prepare_engram(
++                    input_ids,
++                    positions,
++                    model_kwargs.get("lookback_token_ids"),
++                    capture=getattr(context, "capturing", False)
++                    or torch.cuda.is_current_stream_capturing(),
++                )
++            )
++        try:
++            return self.model(
++                input_ids=input_ids,
++                positions=positions,
++                intermediate_tensors=intermediate_tensors,
++                inputs_embeds=inputs_embeds,
++                **model_kwargs,
++            )
++        finally:
++            finish_engram = getattr(self.model, "finish_cpu_engram", None)
++            if finish_engram is not None:
++                finish_engram()
+ 
+     @staticmethod
+     def _is_uniform_decode(
+@@ -6171,6 +6193,18 @@ class GPUModelRunner(
+                     slot_mapping=slot_mappings,
+                 ),
+             ):
++                prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
++                if prepare_engram is not None and getattr(
++                    self.model, "uses_cpu_engram", False
++                ):
++                    model_kwargs.update(
++                        prepare_engram(
++                            input_ids,
++                            positions,
++                            model_kwargs.get("lookback_token_ids"),
++                            capture=True,
++                        )
++                    )
+                 outputs = self.model(
+                     input_ids=input_ids,
+                     positions=positions,

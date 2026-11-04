@@ -1,0 +1,13 @@
+ImportError while loading conftest '/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend/tests/ut/conftest.py'.
+tests/ut/conftest.py:201: in <module>
+    import vllm.utils.torch_utils as _vllm_torch_utils
+../vllm/vllm/__init__.py:14: in <module>
+    import vllm.env_override  # noqa: F401
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+../vllm/vllm/env_override.py:153: in <module>
+    from vllm.utils.torch_utils import is_torch_equal, is_torch_equal_or_newer
+../vllm/vllm/utils/torch_utils.py:21: in <module>
+    from vllm.utils.platform_utils import is_pin_memory_available
+../vllm/vllm/utils/platform_utils.py:10: in <module>
+    import regex as re
+E   ModuleNotFoundError: No module named 'regex'

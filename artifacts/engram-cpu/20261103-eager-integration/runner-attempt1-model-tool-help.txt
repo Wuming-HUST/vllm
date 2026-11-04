@@ -1,0 +1,23 @@
+usage: validate_engram_cpu_model.py [-h] [--model MODEL] --output OUTPUT
+                                    [--prompts PROMPTS]
+                                    [--engine-args ENGINE_ARGS]
+                                    [--tp {1,2,4,8}]
+                                    [--cpu-kernel {auto,scalar,neon,sve2}]
+                                    [--max-tokens MAX_TOKENS]
+                                    [--logprob-atol LOGPROB_ATOL]
+
+Compare actual eager model generations in separate device/CPU processes.
+Requires a complete target runtime and a local DeepSeek V4.1 checkpoint. This
+is a deterministic generation smoke gate, not a dataset quality score.
+
+options:
+  -h, --help            show this help message and exit
+  --model MODEL
+  --output OUTPUT
+  --prompts PROMPTS     JSON list of nonempty prompt strings
+  --engine-args ENGINE_ARGS
+                        common LLM kwargs as JSON
+  --tp {1,2,4,8}
+  --cpu-kernel {auto,scalar,neon,sve2}
+  --max-tokens MAX_TOKENS
+  --logprob-atol LOGPROB_ATOL

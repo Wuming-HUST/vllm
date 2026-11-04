@@ -148,7 +148,7 @@ def test_engram_group_creation_honors_model_and_options(
     assert parallel_state.get_etp_group().ranks == etp_ranks
 
 
-def _worker(rank: int, tp_size: int, port: int) -> None:
+def _worker(rank: int, tp_size: int, port: int, lookup_backend: str) -> None:
     torch.accelerator.set_device_index(rank)
     update_environment_variables(
         {
@@ -198,12 +198,15 @@ def _worker(rank: int, tp_size: int, port: int) -> None:
             [8, 7],
             [False, True] if tp_size > 1 else [False],
         ):
+            if lookup_backend == "cpu" and not cpu_offload:
+                continue
             _check_table(
                 vllm_config,
                 cpu_offload,
                 dp_shared_memory,
                 n_heads,
                 sequence_parallel,
+                lookup_backend,
             )
     finally:
         cleanup_dist_env_and_memory()
@@ -307,7 +310,12 @@ def _check_shared_storage_lifetime_and_failures(failure):
 
 
 def _check_table(
-    vllm_config, cpu_offload, dp_shared_memory, n_heads, sequence_parallel
+    vllm_config,
+    cpu_offload,
+    dp_shared_memory,
+    n_heads,
+    sequence_parallel,
+    lookup_backend="device",
 ):
     parallel = vllm_config.parallel_config
     dp_size, tp_size = parallel.data_parallel_size, parallel.tensor_parallel_size
@@ -352,6 +360,7 @@ def _check_table(
                 engram_config=EngramConfig(
                     cpu_offload=cpu_offload,
                     dp_shared_memory=dp_shared_memory,
+                    lookup_backend=lookup_backend,
                 ),
                 scheduler_config=vllm_config.scheduler_config,
                 load_config=load_config,
@@ -452,7 +461,11 @@ def _check_table(
             )
         )
         if replay:
-            captures = ("full", "breakable")
+            captures = (
+                ("external_full", "breakable")
+                if lookup_backend == "cpu"
+                else ("full", "breakable")
+            )
             for capture in captures:
                 _check_prefetch_replay(
                     engram,
@@ -620,9 +633,13 @@ def _check_prefetch_replay(
         tokens, len(head_sizes), DIM, device="cuda", dtype=torch.bfloat16
     )
 
-    def step():
+    def prepare():
         gathered = gather_engram_hashes(ids.clone(), dp_shared_memory=dp_shared_memory)
         engram.prepare_embeddings(gathered)
+
+    def step():
+        if capture != "external_full":
+            prepare()
         output.copy_(engram.embed(ids))
 
     with pytest.MonkeyPatch.context() as patch:
@@ -630,6 +647,8 @@ def _check_prefetch_replay(
         warmup = torch.cuda.Stream()
         warmup.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(warmup):
+            if capture == "external_full":
+                prepare()
             step()
         if capture == "breakable":
             graph = BreakableCUDAGraphCapture()
@@ -643,6 +662,8 @@ def _check_prefetch_replay(
         torch.cuda.current_stream().wait_stream(warmup)
         for iteration in range(2):
             ids.copy_(_make_ids(head_sizes, 8, seed=600 + iteration))
+            if capture == "external_full":
+                prepare()
             graph.replay()
             expected = _reference(weight.cuda(), scale_inv.cuda(), ids)
             if engram.use_sequence_parallel:
@@ -653,12 +674,15 @@ def _check_prefetch_replay(
 
 @pytest.mark.skipif(not current_platform.is_cuda(), reason="CUDA required")
 @pytest.mark.parametrize("tp_size", [1, 2])
-def test_engram_table_shared_across_dp_replicas(tp_size, monkeypatch):
+@pytest.mark.parametrize("lookup_backend", ["device", "cpu"])
+def test_engram_table_shared_across_dp_replicas(tp_size, lookup_backend, monkeypatch):
     """Check all storage modes with one process launch per TP/DP topology."""
     if torch.accelerator.device_count() < WORLD_SIZE:
         pytest.skip(f"Need {WORLD_SIZE} GPUs to run the test.")
     monkeypatch.setenv("VLLM_USE_BREAKABLE_CUDAGRAPH", "1")
-    mp.spawn(_worker, args=(tp_size, get_open_port()), nprocs=WORLD_SIZE)
+    mp.spawn(
+        _worker, args=(tp_size, get_open_port(), lookup_backend), nprocs=WORLD_SIZE
+    )
     cleanup_dist_env_and_memory()
 
 

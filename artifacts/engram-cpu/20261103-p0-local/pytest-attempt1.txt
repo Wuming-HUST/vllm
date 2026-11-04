@@ -1,0 +1,260 @@
+..............FFFF..                                                     [100%]
+=================================== FAILURES ===================================
+_____ test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-1] _____
+
+tp = 1, fmt = 'bf16'
+
+    @pytest.mark.parametrize("tp", [1, 2, 4, 8])
+    @pytest.mark.parametrize("fmt", ["mxfp8", "int8", "bf16"])
+    def test_all_head_shards_reconstruct_reference_with_tail_padding(tp, fmt):
+        generator = torch.Generator().manual_seed(19)
+        heads, rows_per_head, dim, block = 24, 7, 256, 32
+        rows = heads * rows_per_head
+        values = torch.randn((rows, dim), generator=generator)
+        if fmt == "mxfp8":
+            codes = values.to(torch.float8_e4m3fn)
+            scales = torch.randint(
+                124, 130, (rows, dim // block), generator=generator, dtype=torch.uint8
+            )
+            decoded_scales = torch.ldexp(
+                torch.ones_like(scales, dtype=torch.float32), scales.int() - 127
+            )
+        elif fmt == "int8":
+            codes = (values * 16).to(torch.int8)
+            scales = torch.rand((rows, dim // block), generator=generator)
+            decoded_scales = scales
+        else:
+            codes, scales = values.bfloat16(), torch.empty(0)
+        ids = (
+            torch.randint(rows_per_head, (5, heads), generator=generator)
+            + torch.arange(heads) * rows_per_head
+        ).int()
+        ids[0, 0] = -1
+        ids[1, -1] = rows + 1
+        safe = ids.clamp(0, rows - 1).long()
+        decoded = codes.float()
+        if fmt != "bf16":
+            decoded = (
+                (decoded.unflatten(-1, (-1, block)) * decoded_scales.unsqueeze(-1))
+                .flatten(-2)
+                .bfloat16()
+            )
+        expected = decoded[safe].masked_fill(((ids < 0) | (ids >= rows)).unsqueeze(-1), 0)
+        shards = []
+        for rank in range(tp):
+            count, start = heads // tp, rank * (heads // tp)
+            begin, end = start * rows_per_head, (start + count) * rows_per_head
+            out = torch.full((5, count + 1, dim), float("nan"), dtype=torch.bfloat16)
+            ptr = out.data_ptr()
+            torch.ops._engram_cpu.gather_out(
+                codes[begin:end].contiguous(),
+                scales[begin:end].contiguous() if fmt != "bf16" else scales,
+                ids,
+                start,
+                count,
+                begin,
+                block,
+                out,
+            )
+            assert out.data_ptr() == ptr
+            assert torch.count_nonzero(out[:, count:]) == 0
+            shards.append(out[:, :count])
+>       torch.testing.assert_close(torch.cat(shards, dim=1), expected, rtol=0, atol=0)
+E       AssertionError: The values for attribute 'dtype' do not match: torch.bfloat16 != torch.float32.
+
+tests/kernels/test_engram_cpu.py:174: AssertionError
+_____ test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-2] _____
+
+tp = 2, fmt = 'bf16'
+
+    @pytest.mark.parametrize("tp", [1, 2, 4, 8])
+    @pytest.mark.parametrize("fmt", ["mxfp8", "int8", "bf16"])
+    def test_all_head_shards_reconstruct_reference_with_tail_padding(tp, fmt):
+        generator = torch.Generator().manual_seed(19)
+        heads, rows_per_head, dim, block = 24, 7, 256, 32
+        rows = heads * rows_per_head
+        values = torch.randn((rows, dim), generator=generator)
+        if fmt == "mxfp8":
+            codes = values.to(torch.float8_e4m3fn)
+            scales = torch.randint(
+                124, 130, (rows, dim // block), generator=generator, dtype=torch.uint8
+            )
+            decoded_scales = torch.ldexp(
+                torch.ones_like(scales, dtype=torch.float32), scales.int() - 127
+            )
+        elif fmt == "int8":
+            codes = (values * 16).to(torch.int8)
+            scales = torch.rand((rows, dim // block), generator=generator)
+            decoded_scales = scales
+        else:
+            codes, scales = values.bfloat16(), torch.empty(0)
+        ids = (
+            torch.randint(rows_per_head, (5, heads), generator=generator)
+            + torch.arange(heads) * rows_per_head
+        ).int()
+        ids[0, 0] = -1
+        ids[1, -1] = rows + 1
+        safe = ids.clamp(0, rows - 1).long()
+        decoded = codes.float()
+        if fmt != "bf16":
+            decoded = (
+                (decoded.unflatten(-1, (-1, block)) * decoded_scales.unsqueeze(-1))
+                .flatten(-2)
+                .bfloat16()
+            )
+        expected = decoded[safe].masked_fill(((ids < 0) | (ids >= rows)).unsqueeze(-1), 0)
+        shards = []
+        for rank in range(tp):
+            count, start = heads // tp, rank * (heads // tp)
+            begin, end = start * rows_per_head, (start + count) * rows_per_head
+            out = torch.full((5, count + 1, dim), float("nan"), dtype=torch.bfloat16)
+            ptr = out.data_ptr()
+            torch.ops._engram_cpu.gather_out(
+                codes[begin:end].contiguous(),
+                scales[begin:end].contiguous() if fmt != "bf16" else scales,
+                ids,
+                start,
+                count,
+                begin,
+                block,
+                out,
+            )
+            assert out.data_ptr() == ptr
+            assert torch.count_nonzero(out[:, count:]) == 0
+            shards.append(out[:, :count])
+>       torch.testing.assert_close(torch.cat(shards, dim=1), expected, rtol=0, atol=0)
+E       AssertionError: The values for attribute 'dtype' do not match: torch.bfloat16 != torch.float32.
+
+tests/kernels/test_engram_cpu.py:174: AssertionError
+_____ test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-4] _____
+
+tp = 4, fmt = 'bf16'
+
+    @pytest.mark.parametrize("tp", [1, 2, 4, 8])
+    @pytest.mark.parametrize("fmt", ["mxfp8", "int8", "bf16"])
+    def test_all_head_shards_reconstruct_reference_with_tail_padding(tp, fmt):
+        generator = torch.Generator().manual_seed(19)
+        heads, rows_per_head, dim, block = 24, 7, 256, 32
+        rows = heads * rows_per_head
+        values = torch.randn((rows, dim), generator=generator)
+        if fmt == "mxfp8":
+            codes = values.to(torch.float8_e4m3fn)
+            scales = torch.randint(
+                124, 130, (rows, dim // block), generator=generator, dtype=torch.uint8
+            )
+            decoded_scales = torch.ldexp(
+                torch.ones_like(scales, dtype=torch.float32), scales.int() - 127
+            )
+        elif fmt == "int8":
+            codes = (values * 16).to(torch.int8)
+            scales = torch.rand((rows, dim // block), generator=generator)
+            decoded_scales = scales
+        else:
+            codes, scales = values.bfloat16(), torch.empty(0)
+        ids = (
+            torch.randint(rows_per_head, (5, heads), generator=generator)
+            + torch.arange(heads) * rows_per_head
+        ).int()
+        ids[0, 0] = -1
+        ids[1, -1] = rows + 1
+        safe = ids.clamp(0, rows - 1).long()
+        decoded = codes.float()
+        if fmt != "bf16":
+            decoded = (
+                (decoded.unflatten(-1, (-1, block)) * decoded_scales.unsqueeze(-1))
+                .flatten(-2)
+                .bfloat16()
+            )
+        expected = decoded[safe].masked_fill(((ids < 0) | (ids >= rows)).unsqueeze(-1), 0)
+        shards = []
+        for rank in range(tp):
+            count, start = heads // tp, rank * (heads // tp)
+            begin, end = start * rows_per_head, (start + count) * rows_per_head
+            out = torch.full((5, count + 1, dim), float("nan"), dtype=torch.bfloat16)
+            ptr = out.data_ptr()
+            torch.ops._engram_cpu.gather_out(
+                codes[begin:end].contiguous(),
+                scales[begin:end].contiguous() if fmt != "bf16" else scales,
+                ids,
+                start,
+                count,
+                begin,
+                block,
+                out,
+            )
+            assert out.data_ptr() == ptr
+            assert torch.count_nonzero(out[:, count:]) == 0
+            shards.append(out[:, :count])
+>       torch.testing.assert_close(torch.cat(shards, dim=1), expected, rtol=0, atol=0)
+E       AssertionError: The values for attribute 'dtype' do not match: torch.bfloat16 != torch.float32.
+
+tests/kernels/test_engram_cpu.py:174: AssertionError
+_____ test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-8] _____
+
+tp = 8, fmt = 'bf16'
+
+    @pytest.mark.parametrize("tp", [1, 2, 4, 8])
+    @pytest.mark.parametrize("fmt", ["mxfp8", "int8", "bf16"])
+    def test_all_head_shards_reconstruct_reference_with_tail_padding(tp, fmt):
+        generator = torch.Generator().manual_seed(19)
+        heads, rows_per_head, dim, block = 24, 7, 256, 32
+        rows = heads * rows_per_head
+        values = torch.randn((rows, dim), generator=generator)
+        if fmt == "mxfp8":
+            codes = values.to(torch.float8_e4m3fn)
+            scales = torch.randint(
+                124, 130, (rows, dim // block), generator=generator, dtype=torch.uint8
+            )
+            decoded_scales = torch.ldexp(
+                torch.ones_like(scales, dtype=torch.float32), scales.int() - 127
+            )
+        elif fmt == "int8":
+            codes = (values * 16).to(torch.int8)
+            scales = torch.rand((rows, dim // block), generator=generator)
+            decoded_scales = scales
+        else:
+            codes, scales = values.bfloat16(), torch.empty(0)
+        ids = (
+            torch.randint(rows_per_head, (5, heads), generator=generator)
+            + torch.arange(heads) * rows_per_head
+        ).int()
+        ids[0, 0] = -1
+        ids[1, -1] = rows + 1
+        safe = ids.clamp(0, rows - 1).long()
+        decoded = codes.float()
+        if fmt != "bf16":
+            decoded = (
+                (decoded.unflatten(-1, (-1, block)) * decoded_scales.unsqueeze(-1))
+                .flatten(-2)
+                .bfloat16()
+            )
+        expected = decoded[safe].masked_fill(((ids < 0) | (ids >= rows)).unsqueeze(-1), 0)
+        shards = []
+        for rank in range(tp):
+            count, start = heads // tp, rank * (heads // tp)
+            begin, end = start * rows_per_head, (start + count) * rows_per_head
+            out = torch.full((5, count + 1, dim), float("nan"), dtype=torch.bfloat16)
+            ptr = out.data_ptr()
+            torch.ops._engram_cpu.gather_out(
+                codes[begin:end].contiguous(),
+                scales[begin:end].contiguous() if fmt != "bf16" else scales,
+                ids,
+                start,
+                count,
+                begin,
+                block,
+                out,
+            )
+            assert out.data_ptr() == ptr
+            assert torch.count_nonzero(out[:, count:]) == 0
+            shards.append(out[:, :count])
+>       torch.testing.assert_close(torch.cat(shards, dim=1), expected, rtol=0, atol=0)
+E       AssertionError: The values for attribute 'dtype' do not match: torch.bfloat16 != torch.float32.
+
+tests/kernels/test_engram_cpu.py:174: AssertionError
+=========================== short test summary info ============================
+FAILED tests/kernels/test_engram_cpu.py::test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-1]
+FAILED tests/kernels/test_engram_cpu.py::test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-2]
+FAILED tests/kernels/test_engram_cpu.py::test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-4]
+FAILED tests/kernels/test_engram_cpu.py::test_all_head_shards_reconstruct_reference_with_tail_padding[bf16-8]
+4 failed, 16 passed in 0.78s

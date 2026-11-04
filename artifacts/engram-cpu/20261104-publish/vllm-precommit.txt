@@ -1,0 +1,17 @@
+[INFO] Initializing environment for https://github.com/astral-sh/ruff-pre-commit.
+[INFO] Initializing environment for https://github.com/crate-ci/typos.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/pre-commit/mirrors-clang-format.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/DavidAnson/markdownlint-cli2.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/rhysd/actionlint.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/shellcheck-py/shellcheck-py.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/astral-sh/uv-pre-commit.
+[INFO] Locking pre-commit directory
+[INFO] Initializing environment for https://github.com/pre-commit/pre-commit-hooks.
+[INFO] Locking pre-commit directory
+Interrupted (^C): KeyboardInterrupt: 
+Check the log at /Users/yangshengxin/.cache/pre-commit/pre-commit.log

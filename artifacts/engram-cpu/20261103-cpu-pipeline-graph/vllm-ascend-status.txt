@@ -1,0 +1,17 @@
+## feat/engram-cpu-v41-integration
+ M tests/ut/models/test_engram.py
+ M tests/ut/models/test_engram_v2_model_state.py
+ M vllm_ascend/models/deepseek_v41/engram/embedding.py
+ M vllm_ascend/models/deepseek_v41/engram/hash_state.py
+ M vllm_ascend/models/deepseek_v41/model.py
+ M vllm_ascend/models/deepseek_v41/vl_model.py
+ M vllm_ascend/ops/triton/docs/engram.md
+ M vllm_ascend/patch/platform/patch_engram_config.py
+ M vllm_ascend/worker/model_runner_v1.py
+?? Ascend-VAPA.md
+?? ENGRAM_CPU_ASCEND_AUDIT.md
+?? ENGRAM_CPU_INTEGRATION_PLAN.md
+?? ENGRAM_CPU_MAIN_ANALYSIS.md
+?? vllm-ascend-kv-cache-cpu-offload.md
+?? vllm-ascend-kv-manager.md
+?? vllm-request-flow.md

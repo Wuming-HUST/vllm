@@ -305,6 +305,22 @@ def test_engram_hash_cache_replay(query_len, capture, strided_slots, large_hashe
     state.use_slot_cache = True
     state.pad_id = 0
     state.block_size = 16
+    from vllm.model_executor.layers.engram_cpu import CPUHashWorkspace
+
+    cpu_state = _hash_state(use_slot_cache=True)
+    for name in (
+        "token_map",
+        "multipliers",
+        "primes",
+        "offsets",
+        "pad_id",
+        "block_size",
+    ):
+        setattr(cpu_state, name, getattr(state, name))
+    cpu_state._cpu_hash = CPUHashWorkspace(
+        state.token_map, state.multipliers, state.primes, state.offsets, state.pad_id
+    )
+    cpu_state._cache = torch.full_like(cache, -1, device="cpu")
     lookback = tensor([[-1] * 3] * 2, torch.int32)
     args = (
         input_ids,
@@ -348,6 +364,7 @@ def test_engram_hash_cache_replay(query_len, capture, strided_slots, large_hashe
         positions.copy_(tensor(pos))
         slots.copy_(tensor(physical_slots))
         dead_mask.copy_(tensor(dead, torch.bool))
+        cpu_output = cpu_state(*args)
         if graph is None:
             output = op(*args)
         else:
@@ -370,6 +387,11 @@ def test_engram_hash_cache_replay(query_len, capture, strided_slots, large_hashe
             torch.testing.assert_close(
                 output[:real].cpu(), expected[:real], rtol=0, atol=0
             )
+            torch.testing.assert_close(
+                cpu_output[:real].cpu(), output[:real].cpu(), rtol=0, atol=0
+            )
+        assert cpu_output[2 * query_len :].eq(-1).all()
+        assert cpu_state._cache.tolist() == expected_cache
         assert cache.cpu().tolist() == expected_cache
 
     empty_output = state(
@@ -703,13 +725,22 @@ def test_engram_lookup_reuses_jit_across_token_shapes():
 
 @pytest.mark.skipif(not current_platform.is_cuda(), reason="CUDA required")
 @pytest.mark.parametrize("cpu_offload", [False, True])
+@pytest.mark.parametrize("lookup_backend", ["device", "cpu"])
 @pytest.mark.parametrize("background", [False, True])
 @pytest.mark.parametrize("num_tokens", [1, 7, 256])
-def test_engram_lookup_matches_torch(cpu_offload, background, num_tokens):
+def test_engram_lookup_matches_torch(
+    cpu_offload, lookup_backend, background, num_tokens
+):
     """The fused gather must be bit-exact with the torch dequant path it
     replaces, from HBM and from pinned host memory alike, and must contribute
     zeros for rows another TP rank owns."""
+    if lookup_backend == "cpu" and not cpu_offload:
+        pytest.skip("CPU execution requires host storage")
     layer = _make_embedding(cpu_offload)
+    if lookup_backend == "cpu":
+        from vllm.model_executor.layers.engram_cpu import CPUEmbeddingLookup
+
+        layer._cpu_lookup = CPUEmbeddingLookup(legacy_e8m0=True)
     cols, rows = 24, layer.part_num_embeddings
     ids = torch.randint(0, rows, (num_tokens, cols), dtype=torch.int32, device="cuda")
     expected = _reference_lookup(

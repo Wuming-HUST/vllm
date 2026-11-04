@@ -1,0 +1,31 @@
+SIM105 Use `contextlib.suppress(Exception)` instead of `try`-`except`-`pass`
+   --> vllm/model_executor/layers/engram_cpu.py:176:9
+    |
+174 |           # on the runtime callback thread. Retire while Python owns the ticket.
+175 |           # Device/runtime teardown failures cannot be recovered in a destructor.
+176 | /         try:
+177 | |             self.retire()
+178 | |         except Exception:
+179 | |             pass
+    | |________________^
+180 |
+181 |       def check(self) -> None:
+    |
+help: Replace `try`-`except`-`pass` with `with contextlib.suppress(Exception): ...`
+    |
+13  | import torch
+14  + import contextlib
+15  |
+--------------------------------------------------------------------------------
+176 |         # Device/runtime teardown failures cannot be recovered in a destructor.
+    -         try:
+177 +         with contextlib.suppress(Exception):
+178 |             self.retire()
+    -         except Exception:
+    -             pass
+179 |
+    |
+note: This is an unsafe fix and may change runtime behavior
+
+Found 1 error.
+1 unsafe fix available with `--fix --unsafe-fixes`.

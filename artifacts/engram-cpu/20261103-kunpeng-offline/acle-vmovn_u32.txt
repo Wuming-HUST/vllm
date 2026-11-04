@@ -1,0 +1,70 @@
+{
+  "query_type": "acle_intrinsic",
+  "family": "neon",
+  "query": "vmovn_u32",
+  "tool": "arm_query.py",
+  "decision": "found",
+  "evidence": {
+    "prototype": "uint16x4_t vmovn_u32(uint32x4_t a)",
+    "header": "<arm_neon.h>",
+    "feature_macros": [
+      "__ARM_NEON"
+    ],
+    "mapped_instructions": [
+      "XTN"
+    ]
+  },
+  "matches": [
+    {
+      "name": "vmovn_u32",
+      "base_name": "vmovn_u32",
+      "expanded_names": [
+        "vmovn_u32"
+      ],
+      "family": [
+        "neon"
+      ],
+      "category": "Move > Narrow",
+      "prototype": "uint16x4_t vmovn_u32(uint32x4_t a)",
+      "expanded_prototypes": [
+        "uint16x4_t vmovn_u32(uint32x4_t a)"
+      ],
+      "return_type": "uint16x4_t",
+      "arguments": [
+        "uint32x4_t a"
+      ],
+      "header": "<arm_neon.h>",
+      "feature_macros": [
+        "__ARM_NEON"
+      ],
+      "mapped_instructions": [
+        "XTN"
+      ],
+      "instruction_details": [
+        {
+          "base_instruction": "XTN",
+          "operands": "Vd.4H,Vn.4S",
+          "url": "https://developer.arm.com/documentation/ddi0602/2025-06/SIMD-FP-Instructions/XTN--XTN2--Extract-narrow-",
+          "preamble": "This intrinsic compiles to the following instructions:"
+        }
+      ],
+      "argument_mappings": [
+        {
+          "argument": "a",
+          "register": "Vn.4S"
+        }
+      ],
+      "result_mappings": [
+        {
+          "register": "Vd.4H",
+          "description": "result"
+        }
+      ],
+      "architectures": [
+        "v7",
+        "A32",
+        "A64"
+      ]
+    }
+  ]
+}

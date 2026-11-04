@@ -1,0 +1,6 @@
+Transcription of the earlier read-only probe; not a new probe.
+Host: agent03
+Exit code: 255
+Reported error: Connection timed out during banner exchange
+No remote files copied and no remote tests or restarts launched.
+Target state: unknown.

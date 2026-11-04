@@ -170,6 +170,42 @@ if(Python_VERSION VERSION_GREATER_EQUAL "3.11")
 endif()
 
 #
+# Host retrieval is also used by accelerator workers. Define this target before
+# the device-specific early return, rather than in cpu_extension.cmake.
+#
+define_extension_target(
+  engram_cpu_C
+  DESTINATION vllm
+  LANGUAGE CXX
+  SOURCES csrc/engram_cpu.cpp
+  USE_SABI 3.10
+  WITH_SOABI)
+target_link_libraries(engram_cpu_C PRIVATE ${CMAKE_DL_LIBS})
+
+# Keep the host baseline runnable on Kunpeng 920. ISA-specific objects must not
+# inherit a native CPU architecture from the build host.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+  target_sources(engram_cpu_C PRIVATE csrc/engram_cpu_neon.cpp)
+  target_compile_definitions(engram_cpu_C PRIVATE ENGRAM_CPU_NEON=1)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set_source_files_properties(csrc/engram_cpu.cpp csrc/engram_cpu_neon.cpp
+      PROPERTIES COMPILE_OPTIONS "-march=armv8-a")
+  endif()
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-march=armv8.5-a+sve2" ENGRAM_CPU_SVE2_COMPILER)
+  if(ENGRAM_CPU_SVE2_COMPILER)
+    target_sources(engram_cpu_C PRIVATE csrc/engram_cpu_sve.cpp)
+    set_source_files_properties(csrc/engram_cpu_sve.cpp PROPERTIES
+      COMPILE_OPTIONS "-march=armv8.5-a+sve2;-msve-vector-bits=scalable")
+    target_compile_definitions(engram_cpu_C PRIVATE ENGRAM_CPU_SVE2=1)
+  endif()
+endif()
+
+#
 # Forward the non-CUDA device extensions to external CMake scripts.
 #
 if (NOT VLLM_TARGET_DEVICE STREQUAL "cuda" AND

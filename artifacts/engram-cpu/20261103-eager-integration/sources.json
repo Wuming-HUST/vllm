@@ -1,0 +1,32 @@
+{
+  "vllm": {
+    "CMakeLists.txt": "80c8b504a392ecf2d1e9d98a91affe34791e08647db5a76a92f175a4f57a04af",
+    "ENGRAM_CPU_INTEGRATION_PLAN.md": "a787eb68eec393e9bab93b1752d2c1628acb30d741c17878c107e6f7f5c72427",
+    "benchmarks/kernels/benchmark_engram_cpu.py": "52e99c472ab2dbbcff09fcf569d20ea829b7468f92e0988c61bb17c17a967bde",
+    "csrc/engram_cpu.cpp": "4e76fa1383c6e6ed7efbfc43ba4f5d1099550bcc78e17f2d7f68a31eae9e7c56",
+    "csrc/engram_cpu_kernels.h": "9eef23b5e7eb65fbcf979942a076d0987cf67e3a269c384affa4486a3697902e",
+    "csrc/engram_cpu_neon.cpp": "0173a538b95717ea2dd74cb06275f7829a4a7360a8874026ef7e7f33649a8edd",
+    "csrc/engram_cpu_sve.cpp": "38fc16624e83ca9a66b85d7d71affc78679da07cd4face282c626cda7919732d",
+    "docs/contributing/model/engram_cpu.md": "40094190168d86e8bec90452517f21266f8235f2475968f884d5a76569bc2328",
+    "docs/contributing/model/engram_cpu_kunpeng.md": "26ce02ae94cf7153620e99fc857999dd3df1f42f9c19f000ef97d8f7b2f06206",
+    "docs/contributing/model/engram_cpu_serving.md": "653339d258a3d79bef2d7a0901605ad11747c3477ba6551826b114b2150457c0",
+    "setup.py": "2b60c3a568c4d77300eb97964a17b7b89a515ba31bfbd0443faf79c252fabb12",
+    "tests/distributed/test_engram_dp_shard.py": "b2adf36804b8ffd0ea863395872cce615271405367bf438f91a25b1b5d052a1d",
+    "tests/kernels/test_engram.py": "de2ddd09703d8e7984df728f01ef2fdc2bcf2440b9ad333c0e144a52f44dff38",
+    "tests/kernels/test_engram_cpu.py": "bcc98f701cff814abba9106b83b1628078d902393641f0ecfa2ec0bccdb37476",
+    "tests/test_config.py": "1b67ec4bd2160cfc81dbe364371eafa8b449aa242d398f8df45d74babb7bed95",
+    "tools/validate_engram_cpu.py": "9f5418d4be630feba3415947303f5035d2101924bb6a9c288e8d92e44896e366",
+    "tools/validate_engram_cpu_model.py": "ed6601ebfc248adcca1591e7d5baf1fc582693559773ddebd8c9bad451ceb586",
+    "vllm/config/engram.py": "540d99601907ea3e20d4774bd3fc399692fca0c8e19c7194f46fa7539d6684ab",
+    "vllm/model_executor/layers/engram_cpu.py": "c5efe8d2c09172f5ea5385b3db0f1ef0b512a42127b855149d9c72d32794b9ed",
+    "vllm/models/deepseek_v41/nvidia/engram.py": "82116b5daa6dad9b0f22a080c74cccda2c77717d8ae973287308da5f13c8435c"
+  },
+  "vllm-ascend": {
+    "ENGRAM_CPU_INTEGRATION_PLAN.md": "c7e4d68c8599eedf39279a94122b61314276cc04739e9cb8173c1764ceaeaeeb",
+    "tests/ut/models/test_engram.py": "3e8c3ba6d24c1c9200c1f8ad21fc98811bc1f8a519fbf05cae2085e28b5b6f21",
+    "vllm_ascend/models/deepseek_v41/engram/embedding.py": "69919eb6665f9b184d8eaf66c607649902d664d019bfb1b368f582ab6c061b35",
+    "vllm_ascend/models/deepseek_v41/model.py": "2cb1d2c4acba514d520ef69c1e2cbe660673ac12105757ff8ee61da533ea42db",
+    "vllm_ascend/ops/triton/docs/engram.md": "9b62ddef9f58e447b2905296dcf642c723d4c9c7fcfaff2e397767417e16178a",
+    "vllm_ascend/patch/platform/patch_engram_config.py": "c081e760a57484c1483f6f8bd8c44d362fb2c3f1e5e9c2a5fbbc8e8b9de7b439"
+  }
+}

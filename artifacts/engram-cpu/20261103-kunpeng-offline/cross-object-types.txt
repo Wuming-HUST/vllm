@@ -1,0 +1,2 @@
+build/engram-cpu/engram_cpu_neon.aarch64.o: ELF 64-bit LSB relocatable, ARM aarch64, version 1 (SYSV), not stripped
+build/engram-cpu/engram_cpu_sve.aarch64.o:  ELF 64-bit LSB relocatable, ARM aarch64, version 1 (SYSV), not stripped

@@ -1,0 +1,1 @@
+{"neon": true, "sve2": false, "sve_vector_bytes": 0}

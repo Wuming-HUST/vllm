@@ -1,0 +1,10 @@
+.........ss..........................................ssssssssssss...s... [ 54%]
+.......................................ssssssssssssss....s..             [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/kernels/test_engram_cpu.py:251: requires CUDA streams
+SKIPPED [1] tests/kernels/test_engram_cpu.py:305: could not import 'torch_npu': No module named 'torch_npu'
+SKIPPED [12] tests/kernels/test_engram_cpu.py:466: sve2 is unavailable on this build/host
+SKIPPED [1] tests/kernels/test_engram_cpu.py:532: sve2 is unavailable on this build/host
+SKIPPED [14] tests/kernels/test_engram_cpu.py:550: sve2 is unavailable on this build/host
+SKIPPED [1] tests/kernels/test_engram_cpu.py:602: sve2 is unavailable on this build/host
+102 passed, 30 skipped in 0.51s

@@ -1,0 +1,355 @@
+diff --git i/tests/ut/models/test_engram.py w/tests/ut/models/test_engram.py
+index 36221b676..32c2b2043 100644
+--- i/tests/ut/models/test_engram.py
++++ w/tests/ut/models/test_engram.py
+@@ -41,7 +41,10 @@ def test_shared_memory_needs_a_local_dp_peer(monkeypatch):
+ 
+ @pytest.mark.parametrize("quantized", [False, True])
+ @pytest.mark.parametrize("shared", [False, True])
+-def test_loader_preserves_checkpoint_shards_across_dp_pcp_tp(tmp_path, monkeypatch, quantized, shared):
++@pytest.mark.parametrize("lookup_backend", ["device", "cpu"])
++def test_loader_preserves_checkpoint_shards_across_dp_pcp_tp(tmp_path, monkeypatch, quantized, shared, lookup_backend):
++    if lookup_backend == "cpu":
++        pytest.importorskip("vllm.engram_cpu_C", reason="paired CPU extension required")
+     key = "layers.1.engram.embed.weight"
+     scale_key = "layers.1.engram.embed.scale"
+     head_sizes = (1, 2, 3, 4, 5, 6, 7, 8)
+@@ -98,7 +101,14 @@ def test_loader_preserves_checkpoint_shards_across_dp_pcp_tp(tmp_path, monkeypat
+                 monkeypatch.setattr(upstream_engram, "get_engram_dp_group", lambda group=group: group)
+                 monkeypatch.setattr(upstream_engram, "get_tensor_model_parallel_rank", lambda rank=tp_rank: rank)
+                 table = embedding_mod.AscendParallelEngramEmbedding(
+-                    36, 64, head_sizes, 0, cpu_offload=True, dp_shared_memory=shared, storage_dtype=expected.dtype
++                    36,
++                    64,
++                    head_sizes,
++                    0,
++                    cpu_offload=True,
++                    dp_shared_memory=shared,
++                    storage_dtype=expected.dtype,
++                    lookup_backend=lookup_backend,
+                 )
+                 start, end = shared_ranges[tp_rank] if shared else split_ranges[tp_rank * 4 + dp_rank * 2 + pcp_rank]
+                 assert (table.vocab_start_idx, table.vocab_end_idx) == (start, end)
+@@ -108,6 +118,13 @@ def test_loader_preserves_checkpoint_shards_across_dp_pcp_tp(tmp_path, monkeypat
+                 assert torch.equal(table.weight, expected[start:end])
+                 if quantized:
+                     assert torch.equal(table.weight_scale_inv, scales[start:end])
++                if lookup_backend == "cpu":
++                    ids = torch.tensor([[0, 1, 3, 6, 10, 15, 21, 28]], dtype=torch.int32)
++                    reference = torch.empty((1, table.part_n_hash_cols, 64), dtype=torch.bfloat16)
++                    embedding_mod._torch_lookup(table, ids, reference)
++                    out = torch.empty_like(reference)
++                    table.lookup(ids, out)
++                    torch.testing.assert_close(out, reference, rtol=0, atol=0)
+                 loaded_ranges.append((start, end))
+     assert sorted(set(loaded_ranges)) == (shared_ranges if shared else split_ranges)
+     assert sorted(writers) == (shared_ranges if shared else split_ranges)
+@@ -371,6 +388,37 @@ def test_native_mxfp8_preserves_shard_bits_and_lookup(tmp_path, monkeypatch):
+     assert not out[1].any()
+ 
+ 
++@pytest.mark.parametrize("fmt", ["mxfp8", "int8", "bf16"])
++@pytest.mark.parametrize("backend", ["scalar", "auto", "neon", "sve2"])
++def test_cpu_native_lookup_preserves_global_head_offsets(fmt, backend):
++    pytest.importorskip("vllm.engram_cpu_C", reason="paired vLLM CPU extension required")
++    if backend == "neon" and not torch.ops._engram_cpu.has_neon():
++        pytest.skip("NEON extension is unavailable")
++    if backend == "sve2" and not torch.ops._engram_cpu.has_sve2():
++        pytest.skip("SVE2 extension is unavailable")
++    table = object.__new__(embedding_mod.AscendParallelEngramEmbedding)
++    torch.nn.Module.__init__(table)
++    table.vocab_start_idx, table.vocab_end_idx = 50, 61
++    table.head_start, table.part_n_hash_cols = 2, 3
++    table.block_size, table.dim = 32, 64
++    values = torch.arange(11 * 64).reshape(11, 64).float() % 31 - 15
++    dtype = {"mxfp8": torch.float8_e4m3fn, "int8": torch.int8, "bf16": torch.bfloat16}[fmt]
++    table.weight = torch.nn.Parameter(values.to(dtype), requires_grad=False)
++    scales = None
++    if fmt == "mxfp8":
++        scales = torch.full((11, 2), 125, dtype=torch.uint8)
++    elif fmt == "int8":
++        scales = torch.full((11, 2), 0.25)
++    table.weight_scale_inv = torch.nn.Parameter(scales, requires_grad=False) if scales is not None else None
++    ids = torch.tensor([[0, 1, 50, 55, 60], [0, 1, -1, 49, 61]], dtype=torch.int32)
++    expected = torch.empty((2, 3, 64), dtype=torch.bfloat16)
++    embedding_mod._torch_lookup(table, ids, expected)
++    out = torch.full((2, 4, 64), float("nan"), dtype=torch.bfloat16)
++    table.lookup_cpu(ids, out, backend=backend, prefetch_distance=2)
++    torch.testing.assert_close(out[:, :3], expected, rtol=0, atol=0)
++    assert out[:, 3:].count_nonzero() == 0
++
++
+ def test_native_mxfp8_requires_e8m0_scales_before_allocation(tmp_path):
+     key = "layers.1.engram.embed.weight"
+     scale_key = "layers.1.engram.embed.scale"
+diff --git i/tests/ut/models/test_engram_v2_model_state.py w/tests/ut/models/test_engram_v2_model_state.py
+index 0d7285ea9..0036ca777 100644
+--- i/tests/ut/models/test_engram_v2_model_state.py
++++ w/tests/ut/models/test_engram_v2_model_state.py
+@@ -565,7 +565,7 @@ def test_graph_producer_device_count_masks_padding_and_idle_ranks(runtime, monke
+ def test_graph_producer_capability_excludes_slot_cache_and_collectives(runtime, monkeypatch):
+     model = make_model()
+     model.use_sequence_parallel = False
+-    model.engram_hash = SimpleNamespace(use_slot_cache=False)
++    model.engram_hash = SimpleNamespace(use_slot_cache=False, _cpu_hash=None)
+     group = SimpleNamespace(world_size=1)
+     monkeypatch.setattr(model_mod, "get_pp_group", lambda: group)
+     for layer in model.layers:
+@@ -576,6 +576,7 @@ def test_graph_producer_capability_excludes_slot_cache_and_collectives(runtime,
+         (model, "_engram_overlap_enabled", False),
+         (model, "use_sequence_parallel", True),
+         (model.engram_hash, "use_slot_cache", True),
++        (model.engram_hash, "_cpu_hash", object()),
+         (group, "world_size", 2),
+         (model.layers[1].engram.embed_tokens, "dp_size", 2),
+         (model.layers[1].engram.embed_tokens, "tp_size", 2),
+diff --git i/vllm_ascend/models/deepseek_v41/engram/embedding.py w/vllm_ascend/models/deepseek_v41/engram/embedding.py
+index 3888381e2..9580fd894 100644
+--- i/vllm_ascend/models/deepseek_v41/engram/embedding.py
++++ w/vllm_ascend/models/deepseek_v41/engram/embedding.py
+@@ -61,7 +61,19 @@ class AscendParallelEngramEmbedding(ParallelEngramEmbedding):
+         cpu_offload: bool = False,
+         dp_shared_memory: bool = False,
+         storage_dtype: torch.dtype = torch.int8,
++        lookup_backend: str = "device",
++        cpu_kernel: str = "auto",
++        cpu_prefetch_distance: int = 0,
+     ) -> None:
++        self._cpu_lookup = None
++        if lookup_backend == "cpu":
++            if not cpu_offload:
++                raise ValueError("CPU Engram lookup requires cpu_offload=True")
++            from vllm.model_executor.layers.engram_cpu import CPUEmbeddingLookup
++
++            self._cpu_lookup = CPUEmbeddingLookup(backend=cpu_kernel, prefetch_distance=cpu_prefetch_distance)
++        elif lookup_backend != "device":
++            raise ValueError(f"unknown Engram lookup backend: {lookup_backend}")
+         self.storage_dtype = storage_dtype
+         if storage_dtype not in (torch.bfloat16, torch.int8, torch.float8_e4m3fn):
+             raise ValueError(f"Unsupported Engram storage dtype: {storage_dtype}")
+@@ -375,11 +387,52 @@ class AscendParallelEngramEmbedding(ParallelEngramEmbedding):
+         gathered = gather_engram_hashes(indices, dp_shared_memory=self._shared_group is not None)
+         return self.embed_gathered(gathered, num_tokens)
+ 
++    def lookup_cpu(
++        self, indices: torch.Tensor, out: torch.Tensor, *, backend: str = "auto", prefetch_distance: int = 0
++    ) -> None:
++        """Synchronously retrieve this head shard into a caller-owned CPU buffer.
++
++        This explicit host entry point does not select the serving backend or
++        synchronize NPU work. The caller must supply ready CPU indices and keep
++        registered host storage alive until return. Transfers, collectives and
++        consumer events remain the caller's responsibility.
++        """
++        from vllm.model_executor.layers.engram_cpu import gather_out
++
++        scales = self.weight_scale_inv
++        if scales is None:
++            scales = torch.empty(0, device="cpu")
++        gather_out(
++            self.weight,
++            scales,
++            indices,
++            self.head_start,
++            self.part_n_hash_cols,
++            self.vocab_start_idx,
++            self.block_size,
++            out,
++            backend=backend,
++            prefetch_distance=prefetch_distance,
++        )
++
+     def lookup(self, indices: torch.Tensor, out: torch.Tensor, background: bool = False) -> None:
+         """Look up this shard's heads into ``[tokens, padded_heads, dim]`` bf16.
+ 
+         All local head columns are written, including zeroes for invalid IDs.
+         """
++        cpu_lookup = getattr(self, "_cpu_lookup", None)
++        if cpu_lookup is not None:
++            cpu_lookup.lookup(
++                self.weight,
++                self.weight_scale_inv,
++                indices,
++                out,
++                head_start=self.head_start,
++                valid_heads=self.part_n_hash_cols,
++                vocab_start=self.vocab_start_idx,
++                block_size=self.block_size,
++            )
++            return
+         tokens = indices.shape[0]
+         if tokens == 0 or self.part_n_hash_cols == 0:
+             return
+diff --git i/vllm_ascend/models/deepseek_v41/engram/hash_state.py w/vllm_ascend/models/deepseek_v41/engram/hash_state.py
+index ad989a676..e29022ff4 100644
+--- i/vllm_ascend/models/deepseek_v41/engram/hash_state.py
++++ w/vllm_ascend/models/deepseek_v41/engram/hash_state.py
+@@ -92,6 +92,17 @@ class AscendNgramHashState(NgramHashState):
+         History comes from the current chunk, then the runner's lookback
+         window, then the optional V1 slot cache.
+         """
++        if getattr(self, "_cpu_hash", None) is not None:
++            return self._forward_cpu(
++                input_ids,
++                positions,
++                query_start_loc,
++                dead_mask,
++                lookback_token_ids,
++                lookback_dead_mask,
++                slot_mapping,
++                block_table,
++            )
+         cache = self._cache if self.use_slot_cache else None
+         num_tokens = input_ids.shape[0]
+         num_layers, max_ngram = self.multipliers.shape
+diff --git i/vllm_ascend/models/deepseek_v41/model.py w/vllm_ascend/models/deepseek_v41/model.py
+index 689ab3c59..bfcd2fd9a 100644
+--- i/vllm_ascend/models/deepseek_v41/model.py
++++ w/vllm_ascend/models/deepseek_v41/model.py
+@@ -1053,6 +1053,9 @@ class DeepseekV41Model(nn.Module, EagleModelMixin):
+                     storage_dtype=storage_dtype,
+                     cpu_offload=cpu_offload,
+                     dp_shared_memory=self.engram_dp_shared_memory,
++                    lookup_backend=getattr(vllm_config.engram_config, "lookup_backend", "device"),
++                    cpu_kernel=getattr(vllm_config.engram_config, "cpu_kernel", "auto"),
++                    cpu_prefetch_distance=getattr(vllm_config.engram_config, "cpu_prefetch_distance", 0),
+                 )
+                 embed.bind_checkpoint(self.engram_weight_root, f"layers.{layer_id}.engram.embed.weight")
+                 self.layers[layer_id].engram.embed_tokens = embed
+@@ -1257,6 +1260,7 @@ class DeepseekV41Model(nn.Module, EagleModelMixin):
+             self.has_engram
+             and self._engram_overlap_enabled
+             and self.engram_hash is not None
++            and getattr(self.engram_hash, "_cpu_hash", None) is None
+             and not self.engram_hash.use_slot_cache
+             and not self.use_sequence_parallel
+             and get_pp_group().world_size == 1
+@@ -1328,6 +1332,14 @@ class DeepseekV41Model(nn.Module, EagleModelMixin):
+                 for mask_ready, events in self._engram_graph_events.values():
+                     for event in (mask_ready, *events.values()):
+                         event.reset(main)
++            self.finish_cpu_engram()
++
++    def finish_cpu_engram(self):
++        if self.has_engram:
++            for layer in self.config.engram_layer_ids:
++                lookup = getattr(self.layers[layer].engram.embed_tokens, "_cpu_lookup", None)
++                if lookup is not None:
++                    lookup.check()
+ 
+     def _get_engram_input_buffers(self):
+         """Persistent capacity-sized lookup/mask buffers shared by all runs."""
+@@ -1683,6 +1695,9 @@ class AscendDeepseekV41LLMForCausalLM(nn.Module, DeepseekV41MixtureOfExperts, Su
+     def retire_engram_lookups(self, *, reset_events=False):
+         self.model.retire_engram_lookups(reset_events=reset_events)
+ 
++    def finish_cpu_engram(self):
++        self.model.finish_cpu_engram()
++
+     def get_model_state_cls(self):
+         """V2 runner states read token_lookback_depth and drive engram inputs."""
+         from vllm_ascend.models.deepseek_v41.engram.model_state import EngramModelState
+diff --git i/vllm_ascend/models/deepseek_v41/vl_model.py w/vllm_ascend/models/deepseek_v41/vl_model.py
+index b3e4c6d12..d28fab06a 100644
+--- i/vllm_ascend/models/deepseek_v41/vl_model.py
++++ w/vllm_ascend/models/deepseek_v41/vl_model.py
+@@ -227,6 +227,9 @@ class AscendDeepseekV41ForCausalLM(
+     def retire_engram_lookups(self, *, reset_events=False):
+         self.language_model.retire_engram_lookups(reset_events=reset_events)
+ 
++    def finish_cpu_engram(self):
++        self.language_model.finish_cpu_engram()
++
+     def prepare_engram_inputs(
+         self,
+         input_ids,
+diff --git i/vllm_ascend/ops/triton/docs/engram.md w/vllm_ascend/ops/triton/docs/engram.md
+index 095c4b6d9..d2b246690 100644
+--- i/vllm_ascend/ops/triton/docs/engram.md
++++ w/vllm_ascend/ops/triton/docs/engram.md
+@@ -34,3 +34,57 @@ release host memory.
+ Output has shape `[tokens * pad_heads, width]`. Only `local_heads` rows per token
+ are written, starting at output head zero; `head_start` selects the corresponding
+ input ID columns. These two offsets must not be confused.
++
++## Experimental synchronous CPU lookup
++
++`AscendParallelEngramEmbedding.lookup_cpu(indices, out)` is an explicit host
++entry point for the paired vLLM `engram_cpu_C` extension. It does not change the
++default device lookup. It requires contiguous CPU INT32 global IDs and a
++contiguous, disjoint BF16 output `[tokens, padded_heads, dim]`. Weights and
++scales must remain in live CPU storage until the call returns. Device-resident
++tables are rejected rather than copied implicitly.
++
++The adapter passes the existing head and vocabulary shard offsets to the native
++operator. BF16, INT8/FP32 and native E4M3FN/E8M0 tables are supported; invalid
++IDs and padded output heads are zeroed. No table format conversion is performed.
++The optional extension is loaded only when this method is called and must be
++built against the installed PyTorch version. A missing extension raises an
++explicit error; no runtime JIT is used.
++
++The caller owns index D2H completion, pinned output storage, H2D, collectives and
++consumer events. CPU completion alone does not mean the NPU consumer is ready.
++The method is synchronous and must run outside graph capture. The optional model backend below manages stream-ordered transfers and callback
++ownership for model callers; this low-level host entry point remains synchronous.
++
++The optional `backend` keyword selects `auto`, `scalar`, `neon` or `sve2`;
++`prefetch_distance=0` disables read prefetch. Auto uses the NEON candidate on
++AArch64 when compiled and usable. The NEON code does not require BF16 hardware
++instructions. SVE2 is guarded by Linux capabilities and remains explicit for
++target comparison. These choices do not modify the model's TP/DP communication
++or device scheduling. The paired vLLM checkout contains
++`docs/contributing/model/engram_cpu_kunpeng.md` and
++`tools/validate_engram_cpu.py` for offline 920/950 validation.
++
++## Optional CPU producer/model backend
++
++With the paired modified vLLM checkout, set
++`--engram-config '{"cpu_offload":true,"lookup_backend":"cpu","cpu_kernel":"auto"}'`.
++This selects CPU vocabulary conversion, hash and embedding retrieval. Device
++remains the default. Eager execution is no longer mandatory.
++
++CPU hash consumes the runner's raw coordinates/history outside capture. The
++producer stream queues ID D2H, a native C++ host callback for gather/dequant,
++BF16 H2D, and the existing PCP/DP/TP path before layer-ready publication.
++Pinned buffers and callback tickets survive until copy retirement. Errors are
++checked before accepting model output. Metadata copies/hash still form a
++synchronous prefix; actual retrieval overlap is unmeasured here.
++
++CPU mode chooses the existing graph-external producer and keeps FULL consumer
++ExternalEvent waits/resets. It disables graph-internal CPU production, not the
++consumer graph. Supported tag topology restrictions remain unchanged. Native
++Ascend E8M0 semantics are preserved. CANN callback availability and stream queue
++ordering require target verification; there is no silent fallback.
++
++See paired vLLM `docs/contributing/model/engram_cpu_serving.md` for startup,
++rollback, lifecycle/parallel contracts, device callback graph tests and repeated
++checkpoint generation comparisons. No NPU/checkpoint acceptance was run here.
+diff --git i/vllm_ascend/patch/platform/patch_engram_config.py w/vllm_ascend/patch/platform/patch_engram_config.py
+index 8f541e605..b72f1c4db 100644
+--- i/vllm_ascend/patch/platform/patch_engram_config.py
++++ w/vllm_ascend/patch/platform/patch_engram_config.py
+@@ -26,6 +26,9 @@ if importlib.util.find_spec("vllm.config.engram") is not None:
+         # Keep upstream's model/layer checks; only its CUDA requirement is lifted.
+         if not model_has_engram_layers(model_config):
+             raise ValueError("EngramConfig requires a supported model with non-empty n-gram layer ids.")
++        verify_cpu = getattr(self, "verify_cpu_backend", None)
++        if verify_cpu is not None:
++            verify_cpu(model_config)
+ 
+     # TODO: Remove this override once all supported vLLM versions natively
+     # support Engram PCP, including DP x PCP groups and parallel validation.
+diff --git i/vllm_ascend/worker/model_runner_v1.py w/vllm_ascend/worker/model_runner_v1.py
+index 30c76975b..58c7970fa 100644
+--- i/vllm_ascend/worker/model_runner_v1.py
++++ w/vllm_ascend/worker/model_runner_v1.py
+@@ -3255,6 +3255,9 @@ class NPUModelRunner(GPUModelRunner):
+             executor = getattr(forward_context, "device_metadata_executor", None)
+             if executor is not None and executor.submission_in_flight:
+                 executor.release()
++            finish_engram = getattr(self.model, "finish_cpu_engram", None)
++            if finish_engram is not None:
++                finish_engram()
+ 
+         return hidden_states
+ 

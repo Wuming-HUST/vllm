@@ -1,0 +1,2 @@
+# Preserve whitespace in verbatim validation logs and captured patches.
+*.txt -whitespace

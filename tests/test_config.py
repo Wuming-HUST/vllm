@@ -1277,6 +1277,29 @@ def test_engram_dp_shared_memory_requires_cpu_offload():
         EngramConfig(cpu_offload=False, dp_shared_memory=True)
 
 
+def test_cpu_engram_requires_host_storage_and_deepseek_without_disabling_graphs():
+    with pytest.raises(ValueError, match="requires cpu_offload"):
+        EngramConfig(cpu_offload=False, lookup_backend="cpu")
+    config = EngramConfig(cpu_offload=True, lookup_backend="cpu")
+    model = SimpleNamespace(architecture="DeepseekV41ForCausalLM", enforce_eager=False)
+    config.verify_cpu_backend(model)
+    model.enforce_eager = True
+    config.verify_cpu_backend(model)
+    model.architecture = "Qwen4ExpForCausalLM"
+    with pytest.raises(ValueError, match="DeepSeek V4.1"):
+        config.verify_cpu_backend(model)
+
+
+def test_cpu_engram_settings_have_distinct_execution_hashes():
+    settings = [
+        EngramConfig(),
+        EngramConfig(lookup_backend="cpu"),
+        EngramConfig(lookup_backend="cpu", cpu_kernel="scalar"),
+        EngramConfig(lookup_backend="cpu", cpu_prefetch_distance=4),
+    ]
+    assert len({s.compute_hash() for s in settings}) == len(settings)
+
+
 @pytest.mark.parametrize(
     "dp_size,load_format,multithread,error",
     [

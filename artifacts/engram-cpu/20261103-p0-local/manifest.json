@@ -1,0 +1,212 @@
+{
+  "date": "2026-11-03",
+  "phase": "P0 implementation and isolated local checks; target acceptance pending",
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]",
+    "torch": "2.10.0",
+    "python_executable": "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python"
+  },
+  "repos": {
+    "vllm": {
+      "path": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "branch": "feat/engram-cpu-v41-integration",
+      "head": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "tag": "v0.30.0",
+      "tag_commit": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "sha256": {
+        "CMakeLists.txt": "1365dc7442f238d257ad3658ce5511b8afcce28e44a4d8a366305079a1959b58",
+        "setup.py": "2b60c3a568c4d77300eb97964a17b7b89a515ba31bfbd0443faf79c252fabb12",
+        "csrc/engram_cpu.cpp": "542837b122be5167f191257223d97301d712802870bd9c33f46f9a3dfccb7f5f",
+        "csrc/engram_cpu_sve.cpp": "9f257e320e52b55bd6485875338790543e52a765bf36cd6ae06283d98d647723",
+        "vllm/model_executor/layers/engram_cpu.py": "84a616cf4225f7199a9a18d26b9ce4f4c530ece5777d646cf961438bd2ef10c9",
+        "tests/kernels/test_engram_cpu.py": "95cfbe58673892d215ae2b9d2a45469cc00113591e83cc92aeaab45bfbc4e63c",
+        "docs/contributing/model/engram_cpu.md": "b46594ee5d6694e9dd403340c55436159504420e7b5e1e256efd33a34e8e01dc"
+      }
+    },
+    "vllm-ascend": {
+      "path": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "branch": "feat/engram-cpu-v41-integration",
+      "head": "c09d3e20b9c45c80b34ae3781440d90904a44023",
+      "tag": "v0.30.0",
+      "tag_commit": "c09d3e20b9c45c80b34ae3781440d90904a44023",
+      "sha256": {
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py": "b0801dedfad979371b4f144ced15f50eea75a8be1f60961b5824d25049ec8cbc",
+        "tests/ut/models/test_engram.py": "a6ced2b2c0622da694d49a48bc4e7a6a0be81ac2a9a5d08fa68e20daf2106994",
+        "vllm_ascend/ops/triton/docs/engram.md": "f2fc0bff9f172b3d2733eb878843fbc55c4825b777c2df3ea2490399fdcb32ed"
+      }
+    }
+  },
+  "checks": [
+    {
+      "name": "vllm-style",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ruff",
+        "check",
+        "setup.py",
+        "vllm/model_executor/layers/engram_cpu.py",
+        "tests/kernels/test_engram_cpu.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "log": "vllm-style.txt"
+    },
+    {
+      "name": "vllm-format",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ruff",
+        "format",
+        "--check",
+        "vllm/model_executor/layers/engram_cpu.py",
+        "tests/kernels/test_engram_cpu.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "log": "vllm-format.txt"
+    },
+    {
+      "name": "native-format",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/clang-format",
+        "--dry-run",
+        "--Werror",
+        "csrc/engram_cpu.cpp",
+        "csrc/engram_cpu_sve.cpp"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "log": "native-format.txt"
+    },
+    {
+      "name": "ascend-style",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ruff",
+        "check",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "tests/ut/models/test_engram.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "exit_code": 0,
+      "log": "ascend-style.txt"
+    },
+    {
+      "name": "ascend-syntax",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "compileall",
+        "-q",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "tests/ut/models/test_engram.py"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "exit_code": 0,
+      "log": "ascend-syntax.txt"
+    },
+    {
+      "name": "vllm-whitespace",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "log": "vllm-whitespace.txt"
+    },
+    {
+      "name": "ascend-whitespace",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "exit_code": 0,
+      "log": "ascend-whitespace.txt"
+    },
+    {
+      "name": "sve-cross-compile",
+      "argv": [
+        "/usr/bin/clang++",
+        "--target=aarch64-linux-gnu",
+        "-ffreestanding",
+        "-march=armv8.5-a+sve2",
+        "-std=c++20",
+        "-c",
+        "csrc/engram_cpu_sve.cpp",
+        "-o",
+        "build/engram-cpu/engram_cpu_sve.aarch64.o"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "log": "sve-cross-compile.txt"
+    },
+    {
+      "name": "sve-object",
+      "argv": [
+        "file",
+        "build/engram-cpu/engram_cpu_sve.aarch64.o"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "log": "sve-object.txt"
+    }
+  ],
+  "native_build": {
+    "observed_exit_code": 0,
+    "target": "engram_cpu_C",
+    "device_config": "empty",
+    "commands": [
+      ".venv/bin/cmake -S . -B build/engram-cpu -G Ninja -DVLLM_TARGET_DEVICE=empty -DVLLM_PYTHON_EXECUTABLE=\"$PWD/.venv/bin/python\" -DCMAKE_MAKE_PROGRAM=\"$PWD/.venv/bin/ninja\" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=\"$PWD\"",
+      ".venv/bin/cmake --build build/engram-cpu --target engram_cpu_C -j 2",
+      ".venv/bin/cmake --install build/engram-cpu --component engram_cpu_C"
+    ],
+    "raw_build_log": null,
+    "note": "Build/install succeeded earlier in this session; raw terminal output was not saved. Local build cache and installed binary retained.",
+    "binary_sha256": "eb944ee0094dde660b4c41de0ab23195367ee8766e280e069d8fd46d2de7150d"
+  },
+  "pytest": {
+    "argv": [
+      "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+      "-m",
+      "pytest",
+      "--noconftest",
+      "tests/kernels/test_engram_cpu.py",
+      "-q"
+    ],
+    "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+    "exit_code": 0,
+    "result": "21 passed",
+    "log": "pytest-final.txt",
+    "previous_failure": "pytest-attempt1.txt: 4 BF16 reference dtype mismatches; oracle corrected before final run"
+  },
+  "ascend_ut": {
+    "argv": [
+      "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/ut/models/test_engram.py",
+      "-k",
+      "cpu_native_lookup",
+      "-q"
+    ],
+    "env_overrides": {
+      "PYTHONPATH": "/Users/yangshengxin/Documents/Projects/03.AI/vllm"
+    },
+    "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+    "exit_code": 4,
+    "result": "conftest import failed: missing regex; full runtime dependency set is not installed",
+    "log": "ascend-ut-attempt.txt"
+  },
+  "not_validated": [
+    "Linux native module build or SVE2 execution",
+    "full wheel/package dependency installation",
+    "Ascend runtime UT and NPU execution",
+    "distributed TP/DP/EP/SP/PCP",
+    "serving backend, state lifecycle or graph integration",
+    "checkpoint rows/logits/generation or quality",
+    "performance, overlap or end-to-end latency"
+  ]
+}

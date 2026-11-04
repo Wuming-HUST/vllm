@@ -1,0 +1,13 @@
+-- Build type: Release
+-- Target device: empty
+-- Found python matching: /Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python.
+CMake Warning at .venv/lib/python3.12/site-packages/torch/share/cmake/Torch/TorchConfig.cmake:22 (message):
+  static library kineto_LIBRARY-NOTFOUND not found.
+Call Stack (most recent call first):
+  .venv/lib/python3.12/site-packages/torch/share/cmake/Torch/TorchConfig.cmake:125 (append_torchlib_if_found)
+  CMakeLists.txt:112 (find_package)
+
+
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: /Users/yangshengxin/Documents/Projects/03.AI/vllm/build/engram-cpu

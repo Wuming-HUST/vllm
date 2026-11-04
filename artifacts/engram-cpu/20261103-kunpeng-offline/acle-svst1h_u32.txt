@@ -1,0 +1,81 @@
+{
+  "query_type": "acle_intrinsic",
+  "family": "sve",
+  "query": "svst1h_u32",
+  "tool": "arm_query.py",
+  "decision": "found",
+  "evidence": {
+    "prototype": "void svst1h[_u32](svbool_t pg, uint16_t *base, svuint32_t data)",
+    "header": "<arm_sve.h>",
+    "feature_macros": [
+      "__ARM_FEATURE_SVE"
+    ],
+    "mapped_instructions": [
+      "ST1H"
+    ]
+  },
+  "matches": [
+    {
+      "name": "svst1h[_u32]",
+      "base_name": "svst1h",
+      "expanded_names": [
+        "svst1h",
+        "svst1h_u32"
+      ],
+      "family": [
+        "sve"
+      ],
+      "category": "Store > Consecutive",
+      "prototype": "void svst1h[_u32](svbool_t pg, uint16_t *base, svuint32_t data)",
+      "expanded_prototypes": [
+        "void svst1h(svbool_t pg, uint16_t *base, svuint32_t data)",
+        "void svst1h_u32(svbool_t pg, uint16_t *base, svuint32_t data)"
+      ],
+      "return_type": "void",
+      "arguments": [
+        "svbool_t pg",
+        "uint16_t *base",
+        "svuint32_t data"
+      ],
+      "header": "<arm_sve.h>",
+      "feature_macros": [
+        "__ARM_FEATURE_SVE"
+      ],
+      "mapped_instructions": [
+        "ST1H"
+      ],
+      "instruction_details": [
+        {
+          "base_instruction": "ST1H",
+          "operands": "Zdata.S, Pg, [Xarray, Xindex, LSL #1]",
+          "url": "https://developer.arm.com/documentation/ddi0602/2025-06/SVE-Instructions/ST1H--scalar-plus-scalar--consecutive-registers---Contiguous-store-of-halfwords-from-multiple-consecutive-vectors--scalar-index--",
+          "preamble": "When base has the form &array[index], this intrinsic can use:"
+        },
+        {
+          "base_instruction": "ST1H",
+          "operands": "Zdata.S, Pg, [Xbase, #0, MUL VL]",
+          "url": "https://developer.arm.com/documentation/ddi0602/2025-06/SVE-Instructions/ST1H--scalar-plus-immediate--consecutive-registers---Contiguous-store-of-halfwords-from-multiple-consecutive-vectors--immediate-index--",
+          "preamble": "The general implementation is:"
+        }
+      ],
+      "argument_mappings": [
+        {
+          "argument": "pg",
+          "register": "Pg.S"
+        },
+        {
+          "argument": "base",
+          "register": "Xbase"
+        },
+        {
+          "argument": "data",
+          "register": "Zdata.S"
+        }
+      ],
+      "result_mappings": [],
+      "architectures": [
+        "A64"
+      ]
+    }
+  ]
+}

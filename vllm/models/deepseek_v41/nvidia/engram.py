@@ -198,14 +198,17 @@ class DPSharedEngramStorage:
         # weights are ready after the last weight-loader call returns.
         torch.distributed.barrier(group=self.group.cpu_group)
 
-    def get_views(
-        self, weight: torch.Tensor, scales: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def validate_storage(self, weight: torch.Tensor, scales: torch.Tensor) -> None:
         if (weight.data_ptr(), scales.data_ptr()) != (
             self.weight.data_ptr(),
             self.weight_scale_inv.data_ptr(),
         ):
             raise RuntimeError("Shared Engram parameter storage must not be replaced")
+
+    def get_views(
+        self, weight: torch.Tensor, scales: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self.validate_storage(weight, scales)
         if self._views is None:
             self._views = (
                 get_accelerator_view_from_cpu_tensor(self.weight),
@@ -227,8 +230,26 @@ class ParallelEngramEmbedding(BaseParallelEngramEmbedding):
         block_size: int = 32,
         cpu_offload: bool = False,
         dp_shared_memory: bool = False,
+        lookup_backend: str = "device",
+        cpu_kernel: str = "auto",
+        cpu_prefetch_distance: int = 0,
     ) -> None:
         self.cpu_offload = cpu_offload
+        self._cpu_lookup = None
+        if lookup_backend == "cpu":
+            if not cpu_offload:
+                raise ValueError("CPU Engram lookup requires cpu_offload=True")
+            from vllm.model_executor.layers.engram_cpu import CPUEmbeddingLookup
+
+            # Preserve this tag's NVIDIA exponent-bit decoder, including the
+            # special E8M0 bytes that differ from Ascend's native decoder.
+            self._cpu_lookup = CPUEmbeddingLookup(
+                backend=cpu_kernel,
+                prefetch_distance=cpu_prefetch_distance,
+                legacy_e8m0=True,
+            )
+        elif lookup_backend != "device":
+            raise ValueError(f"unknown Engram lookup backend: {lookup_backend}")
         self.dp_shared_memory = dp_shared_memory
         self.dp_size = get_engram_dp_size()
         if dp_shared_memory:
@@ -311,6 +332,25 @@ class ParallelEngramEmbedding(BaseParallelEngramEmbedding):
         assert self._views is not None
         return self._views
 
+    def lookup(
+        self, indices: torch.Tensor, out: torch.Tensor, background: bool = False
+    ) -> None:
+        cpu_lookup = getattr(self, "_cpu_lookup", None)
+        if cpu_lookup is None:
+            return super().lookup(indices, out, background=background)
+        if self._shared_memory is not None:
+            self._shared_memory.validate_storage(self.weight, self.weight_scale_inv)
+        cpu_lookup.lookup(
+            self.weight,
+            self.weight_scale_inv,
+            indices,
+            out,
+            head_start=self.head_start,
+            valid_heads=min(self.part_n_hash_cols, self.n_hash_cols - self.head_start),
+            vocab_start=self.vocab_start_idx,
+            block_size=self.block_size,
+        )
+
     def forward(self, indices: torch.Tensor) -> torch.Tensor:
         if self.dp_size == 1:
             return super().forward(indices)
@@ -351,6 +391,7 @@ class Engram(BaseEngram):
     """NVIDIA Engram with asynchronous offload and node-local DP lookup."""
 
     _prefetch_stream: torch.cuda.Stream | None = None
+    _cpu_ready: torch.cuda.Event | None = None
 
     def _create_embedding(
         self, layout: EngramLayout, layer_hash_index: int
@@ -363,10 +404,19 @@ class Engram(BaseEngram):
             tuple(size for order in layout.primes[layer_hash_index] for size in order),
             cpu_offload=engram_config.cpu_offload,
             dp_shared_memory=engram_config.dp_shared_memory,
+            lookup_backend=engram_config.lookup_backend,
+            cpu_kernel=engram_config.cpu_kernel,
+            cpu_prefetch_distance=engram_config.cpu_prefetch_distance,
         )
 
     def _init_staging(self, max_tokens: int, head_dim: int) -> None:
         super()._init_staging(max_tokens * self.embed_tokens.dp_size, head_dim)
+        if getattr(self.embed_tokens, "_cpu_lookup", None) is not None:
+            self.staged_rows.zero_()
+            # FULL graphs must retain a real external wait node. A normal
+            # event/stream wait can be elided as a capture-time dependency.
+            self._cpu_ready = torch.cuda.Event(external=True)
+            self._cpu_ready.record(torch.cuda.current_stream())
         if self.embed_tokens.cpu_offload:
             self._prefetch_stream = torch.cuda.Stream(device=self.staged_rows.device)
 
@@ -388,10 +438,15 @@ class Engram(BaseEngram):
         hash_ids.record_stream(stream)
         with torch.cuda.stream(stream):
             self.embed_tokens.lookup(hash_ids, rows, background=True)
+            if self._cpu_ready is not None:
+                self._cpu_ready.record(stream)
 
     @eager_break_during_capture
     def _finish_prefetch(self, stream: torch.cuda.Stream) -> None:
-        torch.cuda.current_stream().wait_stream(stream)
+        if self._cpu_ready is not None:
+            self._cpu_ready.wait(torch.cuda.current_stream())
+        else:
+            torch.cuda.current_stream().wait_stream(stream)
 
     def _ready_rows(self, num_tokens: int) -> torch.Tensor:
         if self._prefetch_stream is not None:

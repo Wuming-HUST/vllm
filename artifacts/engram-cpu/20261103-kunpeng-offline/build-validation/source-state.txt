@@ -1,0 +1,16 @@
+ M CMakeLists.txt
+ M setup.py
+?? ENGRAM_CPU_INTEGRATION_PLAN.md
+?? ENGRAM_CPU_MAIN_ANALYSIS.md
+?? KV_OFFLOAD_FLOW.md
+?? artifacts/
+?? benchmarks/kernels/benchmark_engram_cpu.py
+?? csrc/engram_cpu.cpp
+?? csrc/engram_cpu_kernels.h
+?? csrc/engram_cpu_neon.cpp
+?? csrc/engram_cpu_sve.cpp
+?? docs/contributing/model/engram_cpu.md
+?? docs/contributing/model/engram_cpu_kunpeng.md
+?? tests/kernels/test_engram_cpu.py
+?? tools/validate_engram_cpu.py
+?? vllm/model_executor/layers/engram_cpu.py

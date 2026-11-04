@@ -55,6 +55,7 @@ from vllm.distributed.parallel_state import (
 )
 from vllm.forward_context import (
     BatchDescriptor,
+    get_forward_context,
     set_forward_context,
 )
 from vllm.logger import init_logger
@@ -3876,13 +3877,34 @@ class GPUModelRunner(
         Returns:
             Model output tensor
         """
-        return self.model(
-            input_ids=input_ids,
-            positions=positions,
-            intermediate_tensors=intermediate_tensors,
-            inputs_embeds=inputs_embeds,
-            **model_kwargs,
-        )
+        prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
+        if (
+            prepare_engram is not None
+            and input_ids is not None
+            and getattr(self.model, "uses_cpu_engram", False)
+        ):
+            context = get_forward_context()
+            model_kwargs.update(
+                prepare_engram(
+                    input_ids,
+                    positions,
+                    model_kwargs.get("lookback_token_ids"),
+                    capture=getattr(context, "capturing", False)
+                    or torch.cuda.is_current_stream_capturing(),
+                )
+            )
+        try:
+            return self.model(
+                input_ids=input_ids,
+                positions=positions,
+                intermediate_tensors=intermediate_tensors,
+                inputs_embeds=inputs_embeds,
+                **model_kwargs,
+            )
+        finally:
+            finish_engram = getattr(self.model, "finish_cpu_engram", None)
+            if finish_engram is not None:
+                finish_engram()
 
     @staticmethod
     def _is_uniform_decode(
@@ -6171,6 +6193,18 @@ class GPUModelRunner(
                     slot_mapping=slot_mappings,
                 ),
             ):
+                prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
+                if prepare_engram is not None and getattr(
+                    self.model, "uses_cpu_engram", False
+                ):
+                    model_kwargs.update(
+                        prepare_engram(
+                            input_ids,
+                            positions,
+                            model_kwargs.get("lookback_token_ids"),
+                            capture=True,
+                        )
+                    )
                 outputs = self.model(
                     input_ids=input_ids,
                     positions=positions,

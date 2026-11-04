@@ -428,6 +428,16 @@ class NgramHashState(nn.Module):
         self.register_buffer("primes", torch.tensor(layout.primes), persistent=False)
         self.register_buffer("offsets", layout.offsets, persistent=False)
         self.register_buffer("multipliers", multipliers, persistent=False)
+        self._cpu_hash = None
+        if (
+            vllm_config.engram_config is not None
+            and vllm_config.engram_config.lookup_backend == "cpu"
+        ):
+            from vllm.model_executor.layers.engram_cpu import CPUHashWorkspace
+
+            self._cpu_hash = CPUHashWorkspace(
+                self.token_map, self.multipliers, self.primes, self.offsets, self.pad_id
+            )
         logger.info(
             "Built engram token map (%d -> %d ids) for layers %s",
             len(token_map),
@@ -456,7 +466,9 @@ class NgramHashState(nn.Module):
         self._cache = torch.zeros(
             kv_cache.shape[0] * self.block_size,
             dtype=torch.int32,
-            device=kv_cache.device,
+            device="cpu"
+            if getattr(self, "_cpu_hash", None) is not None
+            else kv_cache.device,
         )
         self._kv_cache_ref = weakref.ref(kv_cache)
         return True
@@ -492,6 +504,17 @@ class NgramHashState(nn.Module):
         History comes from the current chunk, then the runner's lookback
         window, then the optional V1 slot cache. V2 needs only one launch.
         """
+        if getattr(self, "_cpu_hash", None) is not None:
+            return self._forward_cpu(
+                input_ids,
+                positions,
+                query_start_loc,
+                dead_mask,
+                lookback_token_ids,
+                lookback_dead_mask,
+                slot_mapping,
+                block_table,
+            )
         cache = self._cache if self.use_slot_cache else None
         num_tokens = input_ids.shape[0]
         num_layers, max_ngram = self.multipliers.shape
@@ -558,6 +581,32 @@ class NgramHashState(nn.Module):
             num_warps=4,
         )
         return output
+
+    def _forward_cpu(
+        self,
+        input_ids,
+        positions,
+        query_start_loc,
+        dead_mask,
+        lookback_token_ids,
+        lookback_dead_mask,
+        slot_mapping,
+        block_table,
+    ):
+        workspace = self._cpu_hash
+        hashes = workspace.run(
+            input_ids,
+            positions,
+            query_start_loc,
+            dead_mask,
+            lookback_token_ids,
+            lookback_dead_mask,
+            slot_mapping,
+            block_table,
+            cache=self._cache if self.use_slot_cache else None,
+            block_size=self.block_size,
+        )
+        return workspace.publish(hashes, input_ids.device)
 
 
 def _engram_head_shard_weight_loader(

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field, model_validator
 from typing_extensions import Self
@@ -39,12 +39,23 @@ def model_has_engram_layers(model_config: "ModelConfig | None") -> bool:
 
 @config
 class EngramConfig:
-    """Configuration for Engram embedding storage and sharding."""
+    """Configuration for Engram embedding storage, execution and sharding."""
 
     cpu_offload: bool = Field(default_factory=_default_cpu_offload)
-    """Store embedding weights in pinned CPU memory for UVA lookup.
+    """Store embedding weights in pinned CPU memory for UVA or CPU lookup.
     Defaults to VLLM_PLE_CPU_OFFLOAD, which is enabled by default. An explicit
     value takes precedence over the environment variable."""
+
+    lookup_backend: Literal["device", "cpu"] = "device"
+    """Execute retrieval on the device (including UVA) or on the CPU.
+    CPU mode executes compression, hash and retrieval outside device capture.
+    Requires DeepSeek V4.1 and cpu_offload. Parallel collectives stay on device."""
+
+    cpu_kernel: Literal["auto", "scalar", "neon", "sve2"] = "auto"
+    """CPU gather implementation. Auto selects usable NEON or portable C++."""
+
+    cpu_prefetch_distance: int = Field(default=0, ge=0)
+    """Future local output head rows to prefetch; zero disables prefetch."""
 
     embedding_across_dp: bool = False
     """Shard embeddings across TP and all DP ranks when enabled.
@@ -60,11 +71,25 @@ class EngramConfig:
     def _validate_shared_memory(self) -> Self:
         if self.dp_shared_memory and not self.cpu_offload:
             raise ValueError("dp_shared_memory requires cpu_offload=True")
+        if self.lookup_backend == "cpu" and not self.cpu_offload:
+            raise ValueError("CPU Engram lookup requires cpu_offload=True")
         return self
+
+    def verify_cpu_backend(self, model_config: "ModelConfig | None") -> None:
+        """Guard host-side execution before model allocation or graph capture."""
+        if self.lookup_backend != "cpu":
+            return
+        if (
+            model_config is None
+            or model_config.architecture != "DeepseekV41ForCausalLM"
+        ):
+            raise ValueError("CPU Engram lookup currently requires DeepSeek V4.1")
 
     def verify_model_config(self, model_config: "ModelConfig | None") -> None:
         """Reject Engram configuration for models without n-gram embeddings."""
         from vllm.platforms import current_platform
+
+        self.verify_cpu_backend(model_config)
 
         field = (
             _NGRAM_LAYER_FIELDS.get(model_config.architecture)

@@ -1,0 +1,123 @@
+{
+  "status": "completed",
+  "python": "3.12.13 (main, Jun 23 2026, 15:44:24) [Clang 22.1.3 ]",
+  "commands": [
+    {
+      "name": "configure",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/cmake",
+        "-S",
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+        "-B",
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/build/engram-cpu",
+        "-G",
+        "Ninja",
+        "-DVLLM_TARGET_DEVICE=empty",
+        "-DVLLM_PYTHON_EXECUTABLE=/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-DCMAKE_MAKE_PROGRAM=/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/ninja",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_INSTALL_PREFIX=/Users/yangshengxin/Documents/Projects/03.AI/vllm"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.6528940200805664
+    },
+    {
+      "name": "build",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/cmake",
+        "--build",
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/build/engram-cpu",
+        "--target",
+        "engram_cpu_C",
+        "-j",
+        "2"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.07456374168395996
+    },
+    {
+      "name": "install",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/cmake",
+        "--install",
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/build/engram-cpu",
+        "--component",
+        "engram_cpu_C"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.06819510459899902
+    },
+    {
+      "name": "capabilities",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-c",
+        "import importlib.util,json,torch; s=importlib.util.spec_from_file_location('engram_cpu_C','/Users/yangshengxin/Documents/Projects/03.AI/vllm/vllm/engram_cpu_C.abi3.so'); s.loader.exec_module(importlib.util.module_from_spec(s)); c={'neon':torch.ops._engram_cpu.has_neon(),'sve2':torch.ops._engram_cpu.has_sve2(),'sve_vector_bytes':torch.ops._engram_cpu.sve_vector_bytes()}; print(json.dumps(c)); assert all(c[k] for k in ['neon']), 'required ISA is unavailable'"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.9192600250244141
+    },
+    {
+      "name": "numerical",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "pytest",
+        "--noconftest",
+        "tests/kernels/test_engram_cpu.py",
+        "-q",
+        "-ra"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.6601808071136475
+    },
+    {
+      "name": "source-state",
+      "argv": [
+        "git",
+        "status",
+        "--short"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.031103849411010742
+    },
+    {
+      "name": "source-diff",
+      "argv": [
+        "git",
+        "diff",
+        "--no-ext-diff",
+        "--no-color"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.011584758758544922
+    },
+    {
+      "name": "base-commit",
+      "argv": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "exit_code": 0,
+      "elapsed_s": 0.004744052886962891
+    }
+  ],
+  "library_sha256": "4f38836db595d385b9aa5aaf261b02826fbffe2f213bdb881fa9dc5a068c50d5",
+  "source_sha256": {
+    "csrc/engram_cpu.cpp": "32cc8ef5f55614738f4b83cafcbc7088014766108c03f012cde6267501a6ed6e",
+    "csrc/engram_cpu_kernels.h": "9eef23b5e7eb65fbcf979942a076d0987cf67e3a269c384affa4486a3697902e",
+    "csrc/engram_cpu_neon.cpp": "0173a538b95717ea2dd74cb06275f7829a4a7360a8874026ef7e7f33649a8edd",
+    "csrc/engram_cpu_sve.cpp": "38fc16624e83ca9a66b85d7d71affc78679da07cd4face282c626cda7919732d",
+    "CMakeLists.txt": "80c8b504a392ecf2d1e9d98a91affe34791e08647db5a76a92f175a4f57a04af",
+    "tests/kernels/test_engram_cpu.py": "a597706b7646ef112b55a06feb1bd12b9079b781d6581094f122b7854e9441d4"
+  }
+}

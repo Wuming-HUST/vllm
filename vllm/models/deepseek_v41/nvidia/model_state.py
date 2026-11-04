@@ -95,4 +95,11 @@ class DeepseekV41ModelState(DefaultModelState):
             # The captured graph reads this buffer; replays refill it in place.
             self.lookback_token_ids.fill_(-1)
             model_inputs["lookback_token_ids"] = self.lookback_token_ids
+        prepare_engram = getattr(self.model, "prepare_cpu_engram", None)
+        if prepare_engram is not None and getattr(self.model, "uses_cpu_engram", False):
+            # Establish fixed graph inputs without executing CPU/history work.
+            dummy = torch.zeros(num_tokens, dtype=torch.int32, device=self.device)
+            model_inputs.update(
+                prepare_engram(dummy, dummy, self.lookback_token_ids, capture=True)
+            )
         return model_inputs

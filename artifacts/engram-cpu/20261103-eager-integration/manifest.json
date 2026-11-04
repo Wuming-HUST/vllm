@@ -1,0 +1,284 @@
+{
+  "scope": "host native numerical and bridge checks; target serving not executed",
+  "checks": [
+    {
+      "name": "host-pytest",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "pytest",
+        "--noconftest",
+        "tests/kernels/test_engram_cpu.py",
+        "-q",
+        "-ra"
+      ],
+      "exit_code": 0,
+      "log": "host-pytest.txt"
+    },
+    {
+      "name": "vllm-ruff",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "setup.py",
+        "tests/distributed/test_engram_dp_shard.py",
+        "tests/kernels/test_engram.py",
+        "tests/test_config.py",
+        "vllm/config/engram.py",
+        "vllm/models/deepseek_v41/nvidia/engram.py",
+        "vllm/model_executor/layers/engram_cpu.py",
+        "tests/kernels/test_engram_cpu.py",
+        "tools/validate_engram_cpu.py",
+        "tools/validate_engram_cpu_model.py",
+        "benchmarks/kernels/benchmark_engram_cpu.py"
+      ],
+      "exit_code": 0,
+      "log": "vllm-ruff.txt"
+    },
+    {
+      "name": "vllm-format",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "setup.py",
+        "tests/distributed/test_engram_dp_shard.py",
+        "tests/kernels/test_engram.py",
+        "tests/test_config.py",
+        "vllm/config/engram.py",
+        "vllm/models/deepseek_v41/nvidia/engram.py",
+        "vllm/model_executor/layers/engram_cpu.py",
+        "tests/kernels/test_engram_cpu.py",
+        "tools/validate_engram_cpu.py",
+        "tools/validate_engram_cpu_model.py",
+        "benchmarks/kernels/benchmark_engram_cpu.py"
+      ],
+      "exit_code": 0,
+      "log": "vllm-format.txt"
+    },
+    {
+      "name": "ascend-ruff",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "ruff",
+        "check",
+        "tests/ut/models/test_engram.py",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "vllm_ascend/models/deepseek_v41/model.py",
+        "vllm_ascend/patch/platform/patch_engram_config.py"
+      ],
+      "exit_code": 0,
+      "log": "ascend-ruff.txt"
+    },
+    {
+      "name": "ascend-format",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "tests/ut/models/test_engram.py",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "vllm_ascend/models/deepseek_v41/model.py",
+        "vllm_ascend/patch/platform/patch_engram_config.py"
+      ],
+      "exit_code": 0,
+      "log": "ascend-format.txt"
+    },
+    {
+      "name": "vllm-syntax",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "compileall",
+        "-q",
+        "setup.py",
+        "tests/distributed/test_engram_dp_shard.py",
+        "tests/kernels/test_engram.py",
+        "tests/test_config.py",
+        "vllm/config/engram.py",
+        "vllm/models/deepseek_v41/nvidia/engram.py",
+        "vllm/model_executor/layers/engram_cpu.py",
+        "tests/kernels/test_engram_cpu.py",
+        "tools/validate_engram_cpu.py",
+        "tools/validate_engram_cpu_model.py",
+        "benchmarks/kernels/benchmark_engram_cpu.py"
+      ],
+      "exit_code": 0,
+      "log": "vllm-syntax.txt"
+    },
+    {
+      "name": "ascend-syntax",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "compileall",
+        "-q",
+        "tests/ut/models/test_engram.py",
+        "vllm_ascend/models/deepseek_v41/engram/embedding.py",
+        "vllm_ascend/models/deepseek_v41/model.py",
+        "vllm_ascend/patch/platform/patch_engram_config.py"
+      ],
+      "exit_code": 0,
+      "log": "ascend-syntax.txt"
+    },
+    {
+      "name": "model-tool-help",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "tools/validate_engram_cpu_model.py",
+        "--help"
+      ],
+      "exit_code": 0,
+      "log": "model-tool-help.txt"
+    },
+    {
+      "name": "config-pytest-attempt",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_config.py",
+        "-k",
+        "cpu_engram",
+        "-q"
+      ],
+      "exit_code": 4,
+      "log": "config-pytest-attempt.txt"
+    },
+    {
+      "name": "ascend-pytest-attempt",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/ut/models/test_engram.py",
+        "-k",
+        "cpu_native_lookup or loader_preserves_checkpoint_shards",
+        "-q",
+        "-ra"
+      ],
+      "exit_code": 4,
+      "log": "ascend-pytest-attempt.txt"
+    },
+    {
+      "name": "vllm-diff",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "vllm-diff.txt"
+    },
+    {
+      "name": "ascend-diff",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "ascend-diff.txt"
+    },
+    {
+      "name": "native-format",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/clang-format",
+        "--dry-run",
+        "--Werror",
+        "csrc/engram_cpu.cpp",
+        "csrc/engram_cpu_kernels.h",
+        "csrc/engram_cpu_neon.cpp",
+        "csrc/engram_cpu_sve.cpp"
+      ],
+      "exit_code": 0,
+      "log": "native-format.txt"
+    },
+    {
+      "name": "native-build",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/cmake",
+        "--build",
+        "build/engram-cpu",
+        "--target",
+        "engram_cpu_C",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "log": "native-build.txt"
+    },
+    {
+      "name": "native-install",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/cmake",
+        "--install",
+        "build/engram-cpu",
+        "--component",
+        "engram_cpu_C"
+      ],
+      "exit_code": 0,
+      "log": "native-install.txt"
+    },
+    {
+      "name": "ascend-pytest-with-upstream-path",
+      "cwd": "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend",
+      "argv": [
+        "/Users/yangshengxin/Documents/Projects/03.AI/vllm/.venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/ut/models/test_engram.py",
+        "-k",
+        "cpu_native_lookup or loader_preserves_checkpoint_shards",
+        "-q",
+        "-ra"
+      ],
+      "environment": {
+        "PYTHONPATH": "/Users/yangshengxin/Documents/Projects/03.AI/vllm"
+      },
+      "exit_code": 4,
+      "log": "ascend-pytest-with-upstream-path.txt"
+    }
+  ],
+  "repositories": {
+    "/Users/yangshengxin/Documents/Projects/03.AI/vllm": {
+      "head": "ced6857afa0ea7b2e3f0846a62e1394e90f15607",
+      "branch": "feat/engram-cpu-v41-integration"
+    },
+    "/Users/yangshengxin/Documents/Projects/03.AI/vllm-ascend": {
+      "head": "c09d3e20b9c45c80b34ae3781440d90904a44023",
+      "branch": "feat/engram-cpu-v41-integration"
+    }
+  },
+  "binary_sha256": "00a540bd6abbbcff6a74f0d4c78d4ccc66a1d3578165b010511eb9f01d092fc6",
+  "target_validation": {
+    "model_generation": "not executed",
+    "gpu_npu_transfers": "not executed",
+    "distributed_collectives": "not executed",
+    "linux_kunpeng_920_950": "not executed",
+    "SVE2_execution": "not executed",
+    "quality_performance": "not executed"
+  }
+}
