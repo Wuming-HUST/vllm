@@ -1,6 +1,8 @@
 # A3 Docker 部署：DeepSeek-V4.1-Flash Engram CPU 与 NPU-UVA 对照
 
-日期：2026-11-04。部署流程来自配套 v0.30.0 源码 recipe；CPU 新路径仍需内网 A3 验收。
+日期：2026-11-07。下文完整命令属于 **16 逻辑 NPU/W8A8**，来自配套 v0.30.0 源码 recipe；CPU 新路径仍需内网 A3 验收。
+
+只有 8 个逻辑 NPU 时使用计划中的 `a3-8-w4a8` 资源分支，先按 [W4A8 可行性与准入分析](engram_cpu_a3_w4a8_feasibility_zh.md)验证 DP1/TP8 + EP。当前 `launch_a3_recipe.sh` 固定 DP4/TP4；仅修改 `MODEL_PATH` 不会变成8 NPU启动。该分支需单独冻结设备可见性、W4A8 revision、eager/graph launch 和有效配置，再进入本文 CPU 扩展构建及 A/B 验证步骤。使用 A3 镜像及驱动配套，不照搬 A2 微信文章的镜像和补丁。
 
 已公开模型的固定 revision、实际 Engram dtype 和反量化位置，见 [权重量化核对](engram_cpu_a3_model_quantization_zh.md)。下载时按该记录固定版本，不根据仓库名或 README 单独推断表格式。
 

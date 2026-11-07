@@ -1,5 +1,7 @@
 # A3 DeepSeek-V4.1-Flash 权重与 Engram 反量化核对
 
+2026-11-07补充：本文原有实读记录对应 W8A8；8逻辑NPU使用W4A8的候选revision、实读header与兼容性另见 [W4A8分析](engram_cpu_a3_w4a8_feasibility_zh.md)。两种checkpoint的Engram表格式相同不证明payload相同，分别冻结和验收。
+
 核查日期：2026-11-04。范围：公开模型、实际 checkpoint header、当前集成分支的加载及消费路径。未进行 A3 整模型装载、精度或性能验收。
 
 ## 1. 可下载的 Ascend 量化候选

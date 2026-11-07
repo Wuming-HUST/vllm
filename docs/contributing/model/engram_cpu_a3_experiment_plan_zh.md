@@ -1,6 +1,6 @@
 # A3 DeepSeek-V4.1-Flash：NPU/UVA 基线与 Engram CPU 卸载实验计划
 
-版本：2026-11-04，实验前计划，尚无 A3 性能结果。
+版本：2026-11-07，实验前计划，尚无 A3 性能结果；增加 8 NPU/W4A8 资源分支及准入条件。
 
 本文件是实验主计划，数据冻结、负载窗口和代码就绪门槛均在下文定义，不依赖另一份负载协议。本文覆盖实验设计；真实数据、逐 run 清单、专用打点与回放工具仍需交付，不能据此认定实验已经可完整执行或 A3 已验收。
 
@@ -22,11 +22,24 @@ git clone --branch feat/engram-cpu-v41-integration https://github.com/Wuming-HUS
 
 分支会继续变化。冻结时记录实际 `git rev-parse HEAD`、dirty patch/必需未跟踪文件及 SHA256、native 库 SHA256；表中为本次代码提交，包含本计划的后续文档提交另记实际 HEAD。后续打点或回放实现必须另记版本，不复用旧源码哈希冒充新实现。
 
-模型固定为 [Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8](https://www.modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8)，revision：
+16 NPU 分支的模型固定为 [Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8](https://www.modelscope.cn/models/Eco-Tech/DeepSeek-V4.1-Flash-1017-w8a8)，revision：
 `12b85455a58c7df345c1abc43934624a76bac576`。
 第 1/14 层表为 INT8 codes + E8M0 scales，group32；当前 loader 在加载时将 scales 转成 FP32，运行时表为 INT8/FP32，每步命中行反量化为 BF16。不是整表 BF16，不重复量化 codes。
 权重 header、版本和校验记录见 [权重量化核对](engram_cpu_a3_model_quantization_zh.md)。
 部署和固定来源 recipe 见 [A3 Docker 部署指南](engram_cpu_a3_docker_zh.md)。
+
+## 按可用 NPU 数选择实验分支
+
+NPU 数均指 `npu-smi` 和进程实际使用的**逻辑设备**。标准 A3 整机的 8 张双芯物理卡提供 16 个逻辑设备；只有 8 个逻辑设备时不能继续运行 DP4/TP4。冻结实际设备 ID、物理卡/芯片映射、互联、NUMA 和租用资源边界，不把“8 卡”与“8 NPU”混用。
+
+| 资源分支 | 主干权重与固定来源 | 拓扑和 runner | 计划地位 |
+| --- | --- | --- | --- |
+| `a3-16-w8a8`：16 个逻辑 NPU 全可用 | 上述 Eco-Tech 1017 W8A8 revision | DP4/TP4 + EP，V1，shared host Engram | 保留 v0.30.0 官方 A3 recipe，先 A 后 B；本地 CPU 改动仍需目标验收 |
+| `a3-8-w4a8`：仅 8 个逻辑 NPU 可用 | `Eco-Tech/DeepSeek-V4.1-Flash-1017-w4a8`，候选固定 revision `4fbbf8c78aeed000add9765003bd842099844006` | **DP1/TP8 + EP**，首先 V1/eager；通过后再验收 V1 FULL_DECODE_ONLY；V2 另立扩展 | 纳入正式资源预案，**尚未通过 A3 装载、容量、精度和 CPU backend 准入**，不标为可直接复现的官方 8 NPU recipe |
+
+可行性、权重证据、候选配置差异及准入表见 [8 NPU/W4A8 与 Engram CPU 兼容性分析](engram_cpu_a3_w4a8_feasibility_zh.md)。当前配套 v0.30.0 已有 per-channel `W4A8_DYNAMIC` MoE 路径；主干 W4A8 与 Engram INT8/group32 表存储相互独立，源码未要求 W4A8 必须使用 V2。结论是**具备源码基础，值得在现有分支验证**，不是 8 NPU 目标部署已经通过。
+
+每个资源分支分别执行本文 G0→A0→A1→B0→B1→B2。A/B 必须使用该分支同一 checkpoint、同一 runner/图模式/拓扑/CPU 总预算；W8A8/16 NPU 与 W4A8/8 NPU 之间只做资源方案比较，不能据其差异归因 CPU 卸载。W4A8 质量相对 W8A8 的损失和 W4A8 内部 A/B 等价性是两项独立验收。本文未特别标注的已有流程、启动脚本和模型模板默认仍属于 `a3-16-w8a8`，选 W4A8 必须替换完整模型/拓扑字段并冻结新 launch，不能只换模型目录。
 
 ## 默认 NPU/UVA 模式：从请求进入到 Prefill、Decode
 
@@ -181,7 +194,7 @@ A 正确性通过后可先采无 profiler 的 E2E 与短 trace；B 先过数值�
 
 ## 3. 阶段 G0：机器、软件和 checkpoint 核验
 
-正式计时之前生成 `manifest.json`，模板见 [manifest.template.json](engram_cpu_a3/manifest.template.json)。所有未知项必须现场填写。
+正式计时之前生成 `manifest.json`，模板见 [manifest.template.json](engram_cpu_a3/manifest.template.json)。所有未知项必须现场填写。`resource_profile` 填 `a3-16-w8a8` 或 `a3-8-w4a8`，记录该分支准入状态、routed expert scheme及MoE weight group size；模板内预填的模型/revision属于W8A8，W4A8运行必须整组替换并核验预期/实际表字段。
 
 ### 3.1 A3 与 CPU 拓扑
 
@@ -705,7 +718,7 @@ C的验收同时要求：历史/hash/rows一致、真实提前量、late-ready�
 
 ### 12.3 启动模板与命令
 
-启动以vLLM-Ascend固定提交的 `docs/source/tutorials/models/DeepSeek-V4.1-Flash.md` §5.1 A3 recipe为准：**DP4/TP4、EP、V1、W8A8、INT8 Engram、dp_shared_memory=true**，覆盖16逻辑设备。之前本计划的通用TP8示例已撤除。官方recipe的量化、tokenizer、parser、通信和编译配置保留。
+`a3-16-w8a8` 启动以vLLM-Ascend固定提交的 `docs/source/tutorials/models/DeepSeek-V4.1-Flash.md` §5.1 A3 recipe为准：**DP4/TP4、EP、V1、W8A8、INT8 Engram、dp_shared_memory=true**，覆盖16逻辑设备。官方recipe的量化、tokenizer、parser、通信和编译配置保留。`a3-8-w4a8` 按上述独立准入与[候选配置差异](engram_cpu_a3_w4a8_feasibility_zh.md)准备新 launch；下列现有脚本仍固定 DP4/TP4，不适用于 8 NPU。
 
 完整Docker挂载、两仓覆盖安装、CPU扩展编译及正确性验证见 [部署指南](engram_cpu_a3_docker_zh.md)。固定来源提取的启动脚本：[launch_a3_recipe.sh](engram_cpu_a3/launch_a3_recipe.sh)。
 
@@ -860,7 +873,7 @@ results/<experiment_id>/
 
 | 顺序 | 工作 | 进入下一阶段的条件 |
 | --- | --- | --- |
-| G0 | 固定1017模型/revision、A3配套、容量、INT8/FP32表与DP4/TP4核验 | A真实启用Engram并可正确运行 |
+| G0 | 选择资源分支；固定1017模型/revision、A3配套、容量、INT8/FP32表、对应拓扑及量化算子核验 | A真实启用Engram并可正确运行；W4A8先完成独立准入表 |
 | A0 | A正确性、A/A重复、轻量关联及短profiler窗口校准 | 无stale、实际graph/shape清楚、扰动已量化 |
 | A1 | 先NPU/UVA：长Prefill与多batch短query Decode，层1/14通信和等待 | 导出各shape绝对时间、完整分支、P0 E2E与trace |
 | A2 | 对照既有INT8 CPU穿刺，标记scope不匹配/未知成本 | 得到可行性判断和待补数据，不提前宣称CPU胜出 |
@@ -870,7 +883,7 @@ results/<experiment_id>/
 | C | 有late-ready证据才设计Prefill提前hash/lookup | 新接口/异步buffer正确，真实等待和E2E改善，CPU成本可接受 |
 | R0 | 可行多拓扑、prefix/churn/MTP扩展与soak | 每个声称支持的部署组合有真实证据 |
 
-最小闭环先只跑A：固定1017模型 + 官方A3主拓扑 + overlap on，Prefill L=8K/32K/128K（按真实chunk统计）、Decode K=2K且B_local=1/8/32。得到A基线后，B从T=1/4/8重复相同场景，加入反量化诊断和E2E，再扩矩阵；容量不满足标infeasible。不要一开始跑所有维度的笛卡尔积。
+最小闭环先只跑A：16 NPU 使用固定1017 W8A8 + 官方A3主拓扑 + overlap on，Prefill L=8K/32K/128K（按真实chunk统计）、Decode K=2K且B_local=1/8/32。只有8 NPU时先执行 W4A8 分支短上下文/eager准入，达到相同门槛后在实际容量范围执行相同闭环，不直接继承128K或32并发。得到A基线后，B从T=1/4/8重复相同场景，加入反量化诊断和E2E，再扩矩阵；容量不满足标infeasible。不要一开始跑所有维度的笛卡尔积。
 
 日程只作资源排期：G0/G1约1–2工作日，打点/回放约2–4日，初筛和主实验约2–4日，扩展/分析约2–3日；不包括新CANN/模型兼容缺陷的修复。按门槛推进，不以日期到达代替验收。
 
